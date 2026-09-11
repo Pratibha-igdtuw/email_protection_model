@@ -24,6 +24,13 @@
         <li class="nav-item"><a class="nav-link" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns me-1"></i>Dashboard</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia me-1"></i>Threat Map</a></li>
         <li class="nav-item"><a class="nav-link" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project me-1"></i>Clusters</a></li>
+        {% if session.get('authenticated') %}
+        <li class="nav-item">
+          <a class="nav-link" href="{{ url_for('logout') }}">
+            <i class="fa-solid fa-right-from-bracket me-1"></i>Logout ({{ session.get('analyst_username') }})
+          </a>
+        </li>
+        {% endif %}
       </ul>
     </div>
   </div>

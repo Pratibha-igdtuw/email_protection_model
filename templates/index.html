@@ -15,6 +15,7 @@
           <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#uploadTab">Upload .eml file</button></li>
         </ul>
         <form action="{{ url_for('analyze') }}" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="tab-content">
             <div class="tab-pane fade show active" id="pasteTab">
               <textarea name="raw_email" class="form-control font-mono" rows="12"

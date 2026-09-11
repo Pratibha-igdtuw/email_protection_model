@@ -5,6 +5,7 @@ blacklist status, WHOIS summary, timestamp, analyst notes.
 """
 import os
 from datetime import datetime
+from xml.sax.saxutils import escape as _esc
 from reportlab.lib.pagesizes import A4
 from reportlab.lib import colors
 from reportlab.lib.units import mm
@@ -118,7 +119,7 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
     if auth.get('high_weight_flags'):
         elements.append(Spacer(1, 4))
         for flag in auth['high_weight_flags']:
-            elements.append(Paragraph(f"⚠ {flag}", ParagraphStyle('Flag', parent=normal, textColor=colors.HexColor('#b91c1c'), fontSize=9)))
+            elements.append(Paragraph(f"⚠ {_esc(flag)}", ParagraphStyle('Flag', parent=normal, textColor=colors.HexColor('#b91c1c'), fontSize=9)))
 
     # --- Content AI red flags ---
     classify = case.get('classify_result', {})
@@ -126,7 +127,7 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
     elements.append(Paragraph(f"ML phishing probability: <b>{classify.get('ml_probability', 0)}%</b>", normal))
     if classify.get('red_flags'):
         for f in classify['red_flags']:
-            elements.append(Paragraph(f"• {f}", normal))
+            elements.append(Paragraph(f"• {_esc(f)}", normal))
     else:
         elements.append(Paragraph("No significant NLP red flags detected.", normal))
 
@@ -151,8 +152,8 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
         ]))
         elements.append(gt)
     else:
-        elements.append(Paragraph(f"GeoIP lookup status: {geo.get('status', 'unavailable')} — "
-                                   f"{geo.get('message', '')}", normal))
+        elements.append(Paragraph(f"GeoIP lookup status: {_esc(str(geo.get('status', 'unavailable')))} — "
+                                   f"{_esc(str(geo.get('message', '')))}", normal))
 
     # --- WHOIS ---
     whois_r = case.get('whois_result', {})
@@ -172,22 +173,27 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
         ]))
         elements.append(wt)
     else:
-        elements.append(Paragraph(f"WHOIS status: {whois_r.get('status', 'unavailable')} — "
-                                   f"{whois_r.get('message', '')}", normal))
+        elements.append(Paragraph(f"WHOIS status: {_esc(str(whois_r.get('status', 'unavailable')))} — "
+                                   f"{_esc(str(whois_r.get('message', '')))}", normal))
 
     # --- Blacklist ---
     bl = case.get('blacklist_hits', [])
     elements.append(Paragraph("Blacklist / Reputation Check", h2))
     if bl:
         for hit in bl:
-            elements.append(Paragraph(f"• {hit.get('indicator')} ({hit.get('type')}) — {hit.get('reason')}", normal))
+            elements.append(Paragraph(
+                f"• {_esc(str(hit.get('indicator')))} ({_esc(str(hit.get('type')))}) — {_esc(str(hit.get('reason')))}",
+                normal))
     else:
         elements.append(Paragraph("No local blacklist matches.", normal))
 
     # --- Header trace ---
     elements.append(Paragraph("Full Header Relay Trace", h2))
     for hop in parsed.get('received_chain', []):
-        line = f"Hop {hop['hop_number']}: from {hop.get('from_host')} by {hop.get('by_host')} | IPs: {', '.join(hop.get('ips', [])) or 'none'} | {hop.get('timestamp','')}"
+        line = (f"Hop {hop['hop_number']}: from {_esc(str(hop.get('from_host')))} "
+                f"by {_esc(str(hop.get('by_host')))} | "
+                f"IPs: {_esc(', '.join(hop.get('ips', [])) or 'none')} | "
+                f"{_esc(str(hop.get('timestamp','')))}")
         elements.append(Paragraph(line, mono))
 
     # --- Chain of custody ---
@@ -216,7 +222,7 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
 
     # --- Analyst notes ---
     elements.append(Paragraph("Analyst Notes", h2))
-    elements.append(Paragraph(analyst_notes or "—", normal))
+    elements.append(Paragraph(_esc(analyst_notes) if analyst_notes else "—", normal))
 
     doc.build(elements)
     return output_path

@@ -9,6 +9,7 @@
     <div class="card shadow-sm">
       <div class="card-body p-4">
         <form action="{{ url_for('connect_mailbox_fetch') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <div class="mb-3">
             <label class="form-label">Provider</label>
             <select name="provider" class="form-select">

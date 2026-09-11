@@ -1,11 +1,15 @@
 import os
 import io
 import csv
+import json
+import time
 import uuid
+import secrets
 from datetime import datetime
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                    flash, send_file, jsonify, Response)
+                    flash, send_file, jsonify, Response, session, abort)
+from werkzeug.security import generate_password_hash, check_password_hash
 
 from models import db, Case, BlacklistEntry, FeedbackLog
 from modules import parser as parser_mod
@@ -37,6 +41,73 @@ db.init_app(app)
 
 with app.app_context():
     db.create_all()
+
+# ---------------------------------------------------------------------------
+# Analyst authentication (single shared analyst account — this is a hackathon
+# prototype, not multi-tenant, but every route below touches forensic
+# evidence, so it should never be reachable without a login).
+# Set ANALYST_USERNAME / ANALYST_PASSWORD env vars in production. Falls back
+# to a dev default so the app still runs out-of-the-box for local testing.
+# ---------------------------------------------------------------------------
+ANALYST_USERNAME = os.environ.get('ANALYST_USERNAME', 'analyst')
+ANALYST_PASSWORD_HASH = os.environ.get(
+    'ANALYST_PASSWORD_HASH',
+    generate_password_hash(os.environ.get('ANALYST_PASSWORD', 'changeme123'))
+)
+
+PUBLIC_ENDPOINTS = {'login', 'static'}
+
+
+@app.before_request
+def _require_login_and_csrf():
+    # Every session gets a CSRF token, including anonymous visitors on the
+    # login page, so the login form itself can carry one.
+    if 'csrf_token' not in session:
+        session['csrf_token'] = secrets.token_hex(32)
+
+    if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
+        return
+
+    if not session.get('authenticated'):
+        return redirect(url_for('login', next=request.path))
+
+    if request.method == 'POST':
+        submitted = request.form.get('csrf_token', '')
+        if not submitted or not secrets.compare_digest(submitted, session['csrf_token']):
+            abort(400, description='Invalid or missing CSRF token. Please reload the page and try again.')
+
+
+@app.context_processor
+def _inject_csrf_token():
+    return {'csrf_token': lambda: session.get('csrf_token', '')}
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if request.method == 'POST':
+        submitted = request.form.get('csrf_token', '')
+        if not submitted or not secrets.compare_digest(submitted, session.get('csrf_token', '')):
+            flash('Session expired — please try logging in again.', 'error')
+            return redirect(url_for('login'))
+
+        username = request.form.get('username', '').strip()
+        password = request.form.get('password', '')
+        if username == ANALYST_USERNAME and check_password_hash(ANALYST_PASSWORD_HASH, password):
+            session['authenticated'] = True
+            session['analyst_username'] = username
+            flash('Logged in.', 'success')
+            next_url = request.args.get('next') or url_for('index')
+            return redirect(next_url)
+        flash('Invalid username or password.', 'error')
+        return redirect(url_for('login'))
+
+    return render_template('login.html')
+
+
+@app.route('/logout')
+def logout():
+    session.clear()
+    return redirect(url_for('login'))
 
 
 def run_pipeline(raw_email_bytes):
@@ -74,6 +145,44 @@ def run_pipeline(raw_email_bytes):
         'blacklist_reasons': bl_reasons,
         'risk_result': risk_result,
     }
+
+
+def _pipeline_cache_path(case_ref):
+    return os.path.join(REPORTS_DIR, f"{case_ref}_pipeline.json")
+
+
+def _save_pipeline_result(case_ref, result):
+    """Caches the full analysis result (geo/whois/auth/ML lookups) at
+    ingestion time. Re-running run_pipeline() later to regenerate a report
+    would re-hit live GeoIP/WHOIS/AbuseIPDB APIs and could silently return
+    different facts than what was actually evidenced at ingestion — bad for
+    a forensic report. Reports are always rebuilt from this frozen snapshot."""
+    with open(_pipeline_cache_path(case_ref), 'w', encoding='utf-8') as f:
+        json.dump(result, f, default=str)
+
+
+def _load_pipeline_result(case_ref):
+    path = _pipeline_cache_path(case_ref)
+    if not os.path.exists(path):
+        return None
+    with open(path, encoding='utf-8') as f:
+        return json.load(f)
+
+
+def _regenerate_report(case):
+    """Rebuilds the case's PDF from the frozen ingestion-time analysis plus
+    whatever is currently in the DB (analyst notes, verdict) — called after
+    notes/feedback change so the downloadable report actually reflects them."""
+    result = _load_pipeline_result(case.case_ref)
+    if result is None:
+        return False
+    custody_record = chain_of_custody.build_custody_record(
+        case.case_ref, case.raw_email_path, case.evidence_sha256)
+    report_path = case.report_path or os.path.join(REPORTS_DIR, f"{case.case_ref}.pdf")
+    pipeline_case = {**result, 'case_id': case.case_ref, 'custody_record': custody_record}
+    report_gen.generate_pdf_report(pipeline_case, report_path, analyst_notes=case.analyst_notes or "")
+    case.report_path = report_path
+    return True
 
 
 @app.route('/')
@@ -144,6 +253,11 @@ def _analyze_and_render(raw_email_bytes):
     db.session.add(case)
     db.session.commit()
 
+    # Freeze the analysis result so later report regenerations (after
+    # analyst notes/feedback are added) reflect ingestion-time evidence,
+    # not a fresh re-query of live GeoIP/WHOIS/blacklist APIs.
+    _save_pipeline_result(case_ref, result)
+
     # Generate PDF report (includes chain-of-custody block)
     custody_record = chain_of_custody.build_custody_record(case_ref, raw_path, evidence_hash)
     report_path = os.path.join(REPORTS_DIR, f"{case_ref}.pdf")
@@ -194,7 +308,12 @@ def update_notes(case_ref):
     case = Case.query.filter_by(case_ref=case_ref).first_or_404()
     case.analyst_notes = request.form.get('notes', '')
     db.session.commit()
-    flash('Analyst notes saved.', 'success')
+    if _regenerate_report(case):
+        db.session.commit()
+        flash('Analyst notes saved and forensic report updated.', 'success')
+    else:
+        flash('Analyst notes saved, but the report could not be regenerated '
+              '(original analysis snapshot missing).', 'error')
     return redirect(url_for('case_detail', case_ref=case_ref))
 
 
@@ -280,12 +399,30 @@ def connect_mailbox_fetch():
     # Stash raw bytes in a short-lived server-side cache file per session-less demo use
     cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
     os.makedirs(cache_dir, exist_ok=True)
+    _sweep_stale_mailbox_cache(cache_dir)
     batch_id = uuid.uuid4().hex[:10]
     for idx, raw in enumerate(result['emails']):
         with open(os.path.join(cache_dir, f"{batch_id}_{idx}.eml"), 'wb') as f:
             f.write(raw)
 
     return render_template('mailbox_picker.html', previews=previews, batch_id=batch_id, count=result['count'])
+
+
+def _sweep_stale_mailbox_cache(cache_dir, max_age_seconds=3600):
+    """Previewed-but-never-analyzed mailbox fetches (the analyst backed out
+    of the picker screen) would otherwise sit on disk forever holding real
+    inbox content. Anything older than an hour gets swept on the next fetch."""
+    now = time.time()
+    try:
+        for fname in os.listdir(cache_dir):
+            fpath = os.path.join(cache_dir, fname)
+            try:
+                if os.path.isfile(fpath) and (now - os.path.getmtime(fpath)) > max_age_seconds:
+                    os.remove(fpath)
+            except OSError:
+                continue
+    except FileNotFoundError:
+        pass
 
 
 @app.route('/connect-mailbox/analyze/<batch_id>/<int:index>')
@@ -297,6 +434,14 @@ def connect_mailbox_analyze(batch_id, index):
         return redirect(url_for('connect_mailbox'))
     with open(path, 'rb') as f:
         raw_email_bytes = f.read()
+    # The analyzed email is now safely archived as case evidence (see
+    # _analyze_and_render's evidence_hash + raw_path); the transient
+    # mailbox-fetch cache copy of someone's real inbox content should not
+    # also sit around indefinitely, so remove it once read.
+    try:
+        os.remove(path)
+    except OSError:
+        pass
     return _analyze_and_render(raw_email_bytes)
 
 
@@ -336,4 +481,10 @@ def retrain_model():
 
 
 if __name__ == '__main__':
-    app.run(debug=True, host='0.0.0.0', port=5000)
+    # Debug mode (Werkzeug interactive debugger) must never be on when the
+    # app is reachable from outside localhost — the debugger allows remote
+    # code execution. Default is safe; opt into debug explicitly for local
+    # dev only, and it forces host back to localhost regardless of env.
+    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
+    host = '127.0.0.1' if debug_mode else os.environ.get('HOST', '0.0.0.0')
+    app.run(debug=debug_mode, host=host, port=int(os.environ.get('PORT', 5001)))
