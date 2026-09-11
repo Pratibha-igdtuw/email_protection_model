@@ -39,6 +39,7 @@
       {% endwith %}
 
       <form method="post" action="{{ url_for('login') }}">
+        <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
         <label class="form-label">Email</label>
         <input type="email" name="email" class="form-control" required autofocus placeholder="you@company.com" value="{{ email or '' }}">
 

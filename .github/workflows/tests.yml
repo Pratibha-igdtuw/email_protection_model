@@ -1,0 +1,37 @@
+name: Tests
+
+on:
+  push:
+  pull_request:
+
+jobs:
+  pytest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements-dev.txt
+
+      - name: Run test suite
+        env:
+          APP_ENV: testing
+          SECRET_KEY: ci-test-secret
+          RATELIMIT_ENABLED: 'false'
+        run: pytest --cov=modules --cov=app --cov-report=term-missing
+
+      - name: Warn if PhishTank snapshot is stale
+        run: |
+          python -c "
+          from modules.blacklist import get_phishtank_freshness
+          f = get_phishtank_freshness()
+          print(f)
+          if f['stale']:
+              print('::warning::PhishTank domain snapshot is stale -- run ml_model/refresh_phishtank.py')
+          "

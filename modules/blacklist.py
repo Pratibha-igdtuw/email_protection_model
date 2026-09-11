@@ -17,14 +17,57 @@ in the email body. Three tiers:
 import os
 import re
 import csv
+import json
 import requests
+from datetime import datetime, timezone
 
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 PHISHTANK_PATH = os.path.join(HERE, '..', 'ml_model', 'phishtank_domains.csv')
+PHISHTANK_METADATA_PATH = os.path.join(HERE, '..', 'ml_model', 'phishtank_metadata.json')
+
+# How old the bundled snapshot can get before we start warning analysts that
+# it's stale. PhishTank has no free live-lookup API, so this is a snapshot by
+# necessity -- see ml_model/refresh_phishtank.py to pull a fresh one, and the
+# README section "Keeping PhishTank data fresh" for a scheduling recipe.
+PHISHTANK_STALE_AFTER_DAYS = 14
 
 _phishtank_domains = None
+_phishtank_metadata = None
+
+
+def _load_phishtank_metadata():
+    global _phishtank_metadata
+    if _phishtank_metadata is None:
+        _phishtank_metadata = {}
+        if os.path.exists(PHISHTANK_METADATA_PATH):
+            try:
+                with open(PHISHTANK_METADATA_PATH, encoding='utf-8') as f:
+                    _phishtank_metadata = json.load(f)
+            except (json.JSONDecodeError, OSError):
+                _phishtank_metadata = {}
+    return _phishtank_metadata
+
+
+def get_phishtank_freshness():
+    """Returns {'last_refreshed_at': iso_str_or_None, 'age_days': float_or_None,
+    'stale': bool}. Used to warn analysts in the UI/PDF report and to log a
+    startup warning, instead of silently serving an aging snapshot."""
+    meta = _load_phishtank_metadata()
+    last_refreshed_at = meta.get('last_refreshed_at')
+    if not last_refreshed_at:
+        return {'last_refreshed_at': None, 'age_days': None, 'stale': True}
+    try:
+        refreshed_dt = datetime.fromisoformat(last_refreshed_at.replace('Z', '+00:00'))
+        age_days = (datetime.now(timezone.utc) - refreshed_dt).total_seconds() / 86400
+        return {
+            'last_refreshed_at': last_refreshed_at,
+            'age_days': round(age_days, 1),
+            'stale': age_days > PHISHTANK_STALE_AFTER_DAYS,
+        }
+    except ValueError:
+        return {'last_refreshed_at': last_refreshed_at, 'age_days': None, 'stale': True}
 
 
 def check_local_blacklist(ip_address, domain, db_session, BlacklistEntry):
@@ -87,8 +130,9 @@ def check_phishtank(sender_domain, urls):
     snapshot. Returns every matching domain with the brand it was
     impersonating and when PhishTank verified it."""
     domains_db = _load_phishtank_domains()
+    freshness = get_phishtank_freshness()
     if not domains_db:
-        return {'status': 'unavailable', 'hits': [], 'dataset_size': 0}
+        return {'status': 'unavailable', 'hits': [], 'dataset_size': 0, **freshness}
 
     candidates = set()
     if sender_domain:
@@ -104,7 +148,7 @@ def check_phishtank(sender_domain, urls):
         if info:
             hits.append({'domain': domain, 'target': info['target'], 'verified_time': info['verified_time']})
 
-    return {'status': 'checked', 'hits': hits, 'dataset_size': len(domains_db)}
+    return {'status': 'checked', 'hits': hits, 'dataset_size': len(domains_db), **freshness}
 
 
 def compute_blacklist_score(local_hits, abuseipdb_result, phishtank_result=None):

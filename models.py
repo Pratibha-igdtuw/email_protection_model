@@ -107,6 +107,29 @@ class BlacklistEntry(db.Model):
     added_on = db.Column(db.DateTime, default=datetime.utcnow)
 
 
+class MailboxOAuthToken(db.Model):
+    """OAuth2 refresh/access tokens for the Gmail API mailbox connector
+    (USP 6 upgrade: OAuth instead of an IMAP app password). One row per
+    user+provider. Tokens are the user's own credential to their mailbox,
+    scoped to read-only mail access -- never shared across users."""
+    __tablename__ = 'mailbox_oauth_tokens'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
+    provider = db.Column(db.String(32), nullable=False, default='gmail')
+    access_token = db.Column(db.Text, nullable=False)
+    refresh_token = db.Column(db.Text)
+    token_expiry = db.Column(db.DateTime)
+    scope = db.Column(db.Text)
+    mailbox_email = db.Column(db.String(255))
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+    updated_at = db.Column(db.DateTime, default=datetime.utcnow, onupdate=datetime.utcnow)
+
+    user = db.relationship('User', backref=db.backref('mailbox_tokens', lazy='dynamic'))
+
+    __table_args__ = (db.UniqueConstraint('user_id', 'provider', name='uq_user_provider'),)
+
+
 class FeedbackLog(db.Model):
     """Tracks analyst feedback used to retrain the ML classifier
     (Self-improving model / feedback loop USP)."""
