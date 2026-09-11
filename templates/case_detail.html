@@ -1,0 +1,46 @@
+{% extends 'base.html' %}
+{% block title %}{{ case.case_ref }} — Case Detail{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-0">{{ case.case_ref }}</h3>
+    <span class="badge severity-badge severity-{{ case.severity|lower }} mt-2">{{ case.severity }} — Score {{ case.combined_score }}</span>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('download_report', case_ref=case.case_ref) }}" class="btn btn-outline-dark"><i class="fa-solid fa-file-pdf me-1"></i>PDF Report</a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary">Back to Dashboard</a>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header">Email Summary</div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <tr><td>From</td><td>{{ case.sender_from }}</td></tr>
+          <tr><td>Subject</td><td>{{ case.subject }}</td></tr>
+          <tr><td>Sender Domain</td><td>{{ case.sender_domain }}</td></tr>
+          <tr><td>Originating IP</td><td>{{ case.originating_ip }}</td></tr>
+          <tr><td>Country</td><td>{{ case.country or '—' }}</td></tr>
+          <tr><td>ML Probability</td><td>{{ case.ml_probability }}%</td></tr>
+          <tr><td>SPF / DKIM / DMARC</td><td>{{ case.spf_result }} / {{ case.dkim_result }} / {{ case.dmarc_result }}</td></tr>
+          <tr><td>Analyzed On</td><td>{{ case.created_at.strftime('%d %b %Y, %H:%M') }}</td></tr>
+        </table>
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header">Analyst Notes</div>
+      <div class="card-body">
+        <form method="post" action="{{ url_for('update_notes', case_ref=case.case_ref) }}">
+          <textarea name="notes" class="form-control mb-2" rows="8" placeholder="Add investigation notes...">{{ case.analyst_notes or '' }}</textarea>
+          <button type="submit" class="btn btn-dark btn-sm"><i class="fa-solid fa-floppy-disk me-1"></i>Save Notes</button>
+        </form>
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}

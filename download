@@ -1,0 +1,8 @@
+__pycache__/
+*.pyc
+instance/*.db
+case_reports/*.pdf
+case_reports/*.eml
+.venv/
+venv/
+*.egg-info/

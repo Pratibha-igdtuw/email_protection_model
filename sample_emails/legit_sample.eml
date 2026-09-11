@@ -1,0 +1,21 @@
+From: "Aditi Sharma" <aditi.sharma@igdtuw.ac.in>
+To: pratibha@igdtuw.ac.in
+Subject: Notes from today's project sync
+Date: Mon, 08 Sep 2026 14:02:11 +0530
+Message-ID: <5678efgh@igdtuw.ac.in>
+Return-Path: <aditi.sharma@igdtuw.ac.in>
+Received: from mail.igdtuw.ac.in (mail.igdtuw.ac.in [103.21.58.10])
+    by mx.example.com with ESMTP id def456; Mon, 08 Sep 2026 14:02:05 +0530
+Received-SPF: pass (igdtuw.ac.in: domain designates 103.21.58.10 as permitted sender)
+DKIM-Signature: v=1; a=rsa-sha256; d=igdtuw.ac.in; s=default; c=relaxed/relaxed;
+Authentication-Results: mx.example.com; spf=pass smtp.mailfrom=igdtuw.ac.in; dkim=pass header.d=igdtuw.ac.in; dmarc=pass (p=none) header.from=igdtuw.ac.in
+Content-Type: text/plain; charset="UTF-8"
+
+Hi Pratibha,
+
+Sharing the notes from today's project sync. I've attached the timeline
+in the shared drive, let me know if you have any questions before
+Friday's review.
+
+Thanks,
+Aditi

@@ -1,0 +1,62 @@
+{% extends 'base.html' %}
+{% block title %}Dashboard — ThreatForensicAI{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="fw-bold mb-0">Analyst Case Dashboard</h3>
+  <a href="{{ url_for('export_csv') }}" class="btn btn-outline-dark btn-sm">
+    <i class="fa-solid fa-file-csv me-1"></i>Export All (CSV)
+  </a>
+</div>
+
+<form class="row g-2 mb-3" method="get">
+  <div class="col-md-6">
+    <input type="text" name="q" value="{{ q }}" class="form-control" placeholder="Search subject, sender, domain, case ref...">
+  </div>
+  <div class="col-md-3">
+    <select name="severity" class="form-select">
+      <option value="">All Severities</option>
+      {% for s in ['Critical','High','Medium','Low'] %}
+      <option value="{{ s }}" {% if severity_filter==s %}selected{% endif %}>{{ s }}</option>
+      {% endfor %}
+    </select>
+  </div>
+  <div class="col-md-3">
+    <button class="btn btn-dark w-100" type="submit"><i class="fa-solid fa-filter me-1"></i>Apply</button>
+  </div>
+</form>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>Case Ref</th><th>Subject</th><th>Sender Domain</th><th>Score</th><th>Severity</th>
+          <th>SPF</th><th>DKIM</th><th>DMARC</th><th>Country</th><th>Date</th><th></th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for c in cases %}
+        <tr>
+          <td><code>{{ c.case_ref }}</code></td>
+          <td class="text-truncate" style="max-width:220px;">{{ c.subject }}</td>
+          <td>{{ c.sender_domain }}</td>
+          <td><b>{{ c.combined_score }}</b></td>
+          <td><span class="badge severity-badge severity-{{ c.severity|lower }}">{{ c.severity }}</span></td>
+          <td>{{ c.spf_result }}</td>
+          <td>{{ c.dkim_result }}</td>
+          <td>{{ c.dmarc_result }}</td>
+          <td>{{ c.country or '—' }}</td>
+          <td class="small">{{ c.created_at.strftime('%d %b, %H:%M') }}</td>
+          <td>
+            <a href="{{ url_for('case_detail', case_ref=c.case_ref) }}" class="btn btn-sm btn-outline-primary">View</a>
+            <a href="{{ url_for('download_report', case_ref=c.case_ref) }}" class="btn btn-sm btn-outline-dark"><i class="fa-solid fa-file-pdf"></i></a>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="11" class="text-center text-muted py-4">No cases analyzed yet. <a href="{{ url_for('index') }}">Analyze an email</a> to get started.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

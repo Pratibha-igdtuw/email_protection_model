@@ -1,0 +1,26 @@
+From: "PayPal Security" <support@paypa1-secure.com>
+To: victim@example.com
+Subject: Urgent: Your account has been suspended
+Date: Mon, 08 Sep 2026 10:15:23 +0000
+Message-ID: <1234abcd@paypa1-secure.com>
+Return-Path: <bounce@paypa1-secure.com>
+Received: from mail.paypa1-secure.com (mail.paypa1-secure.com [185.220.101.45])
+    by mx.example.com with ESMTP id abc123; Mon, 08 Sep 2026 10:15:20 +0000
+Received: from unknown (HELO paypa1-secure.com) (185.220.101.45)
+    by relay.paypa1-secure.com with SMTP; Mon, 08 Sep 2026 10:15:18 +0000
+Received-SPF: fail (paypa1-secure.com: domain does not designate 185.220.101.45 as permitted sender)
+Authentication-Results: mx.example.com; spf=fail smtp.mailfrom=paypa1-secure.com; dkim=none; dmarc=fail (p=reject) header.from=paypa1-secure.com
+Content-Type: text/plain; charset="UTF-8"
+
+Dear Customer,
+
+Urgent Action Required: We detected unusual activity on your account.
+Your account has been suspended. Verify your identity immediately by
+clicking the link below or your account will be permanently closed
+within 24 hours.
+
+Verify Now: http://bit.ly/verify-paypal-acct
+
+Failure to respond within 24 hours will result in permanent suspension.
+
+PayPal Security Team

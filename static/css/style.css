@@ -1,0 +1,72 @@
+:root {
+  --navy: #0f172a;
+  --navy-2: #1e293b;
+  --accent: #38bdf8;
+}
+
+body {
+  background: #f4f6f9;
+  font-family: 'Segoe UI', system-ui, -apple-system, sans-serif;
+}
+
+.app-navbar {
+  background: linear-gradient(90deg, var(--navy), var(--navy-2));
+}
+
+.text-accent { color: var(--accent); }
+
+.font-mono {
+  font-family: 'Courier New', monospace;
+  font-size: 0.85rem;
+}
+
+.feature-chip {
+  background: white;
+  border-radius: 10px;
+  padding: 14px;
+  text-align: center;
+  box-shadow: 0 1px 4px rgba(0,0,0,0.06);
+  font-size: 0.85rem;
+  color: var(--navy-2);
+}
+.feature-chip i { display: block; font-size: 1.4rem; margin-bottom: 6px; color: var(--accent); }
+
+.score-circle {
+  width: 110px;
+  height: 110px;
+  border-radius: 50%;
+  border: 6px solid #e2e8f0;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 2rem;
+  font-weight: 700;
+  margin: 0 auto;
+  color: var(--navy);
+}
+
+.verdict-card.severity-critical .score-circle { border-color: #b91c1c; color: #b91c1c; }
+.verdict-card.severity-high .score-circle { border-color: #d97706; color: #d97706; }
+.verdict-card.severity-medium .score-circle { border-color: #ca8a04; color: #ca8a04; }
+.verdict-card.severity-low .score-circle { border-color: #16a34a; color: #16a34a; }
+
+.severity-badge { font-size: 0.85rem; padding: 6px 12px; }
+.severity-badge.severity-critical { background: #b91c1c; color: white; }
+.severity-badge.severity-high { background: #d97706; color: white; }
+.severity-badge.severity-medium { background: #ca8a04; color: white; }
+.severity-badge.severity-low { background: #16a34a; color: white; }
+
+.auth-pill {
+  padding: 2px 10px;
+  border-radius: 12px;
+  font-size: 0.8rem;
+  font-weight: 600;
+  text-transform: uppercase;
+}
+.auth-pass, .auth-present_unverified { background: #dcfce7; color: #166534; }
+.auth-fail { background: #fee2e2; color: #991b1b; }
+.auth-softfail, .auth-neutral { background: #fef3c7; color: #92400e; }
+.auth-none { background: #e2e8f0; color: #475569; }
+
+.card { border-radius: 12px; }
+.card-header { font-weight: 600; background: white; border-bottom: 1px solid #eef2f7; }

@@ -1,0 +1,10 @@
+__pycache__/
+*.py[cod]
+*.db
+instance/
+case_reports/
+.env
+.venv/
+venv/
+env/
+.python-version

@@ -1,0 +1,146 @@
+{% extends 'base.html' %}
+{% block title %}{{ case_ref }} — Analysis Result{% endblock %}
+{% block content %}
+{% set risk = result.risk_result %}
+{% set auth = result.auth_result %}
+{% set geo = result.geo_result %}
+{% set whois_r = result.whois_result %}
+{% set cl = result.classify_result %}
+{% set parsed = result.parsed_email %}
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-0">Analysis Result</h3>
+    <span class="text-muted">Case Ref: <code>{{ case_ref }}</code></span>
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('download_report', case_ref=case_ref) }}" class="btn btn-outline-dark">
+      <i class="fa-solid fa-file-pdf me-1"></i>Download PDF Report
+    </a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary"><i class="fa-solid fa-table-columns me-1"></i>Dashboard</a>
+  </div>
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card verdict-card severity-{{ risk.severity|lower }} shadow-sm h-100">
+      <div class="card-body text-center">
+        <div class="score-circle">{{ risk.combined_score }}</div>
+        <h5 class="mt-3 mb-0">Combined Risk Score</h5>
+        <span class="badge severity-badge severity-{{ risk.severity|lower }} mt-2">{{ risk.severity }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="text-muted mb-3">Score Breakdown</h6>
+        {% for k, v in risk.breakdown.items() %}
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small"><span>{{ k.replace('_',' ')|title }}</span><span>{{ v }} pts</span></div>
+          <div class="progress" style="height:6px;"><div class="progress-bar bg-dark" style="width:{{ (v/30*100) if v else 0 }}%"></div></div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-robot me-2"></i>Content AI / NLP Analysis</div>
+      <div class="card-body">
+        <p><b>ML Phishing Probability:</b> {{ cl.ml_probability }}%</p>
+        {% if cl.red_flags %}
+          <ul class="mb-0">{% for f in cl.red_flags %}<li>{{ f }}</li>{% endfor %}</ul>
+        {% else %}
+          <p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>No significant NLP red flags detected.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-key me-2"></i>SPF / DKIM / DMARC Authentication</div>
+      <div class="card-body">
+        <table class="table table-sm mb-2">
+          <tr><td>SPF</td><td><span class="auth-pill auth-{{ auth.spf }}">{{ auth.spf }}</span></td></tr>
+          <tr><td>DKIM</td><td><span class="auth-pill auth-{{ auth.dkim }}">{{ auth.dkim }}</span></td></tr>
+          <tr><td>DMARC</td><td><span class="auth-pill auth-{{ auth.dmarc }}">{{ auth.dmarc }}</span></td></tr>
+          <tr><td>Published Policy</td><td>{{ auth.dmarc_published_policy or '—' }}</td></tr>
+        </table>
+        {% if auth.high_weight_flags %}
+          {% for f in auth.high_weight_flags %}
+          <div class="alert alert-danger py-2 px-3 small mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>{{ f }}</div>
+          {% endfor %}
+        {% else %}
+          <p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>Authentication checks passed.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-earth-asia me-2"></i>GeoLocation Intelligence</div>
+      <div class="card-body">
+        {% if geo.status == 'success' %}
+        <table class="table table-sm mb-0">
+          <tr><td>IP</td><td>{{ geo.ip }}</td></tr>
+          <tr><td>Country</td><td>{{ geo.country }} ({{ geo.country_code }})</td></tr>
+          <tr><td>Region / City</td><td>{{ geo.region }} / {{ geo.city }}</td></tr>
+          <tr><td>ISP / Org</td><td>{{ geo.isp }} / {{ geo.org }}</td></tr>
+          <tr><td>ASN</td><td>{{ geo.asn }}</td></tr>
+          <tr><td>Hosting Provider</td><td>{{ geo.is_hosting_provider }}</td></tr>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0">{{ geo.message or 'GeoIP lookup unavailable.' }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-magnifying-glass-location me-2"></i>WHOIS Summary</div>
+      <div class="card-body">
+        {% if whois_r.status == 'success' %}
+        <table class="table table-sm mb-0">
+          <tr><td>Registrar</td><td>{{ whois_r.registrar }}</td></tr>
+          <tr><td>Creation Date</td><td>{{ whois_r.creation_date }}</td></tr>
+          <tr><td>Domain Age</td><td>{{ whois_r.domain_age_days }} days</td></tr>
+          <tr><td>Newly Registered</td><td>{{ whois_r.is_newly_registered }}</td></tr>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0">{{ whois_r.message or 'WHOIS lookup unavailable.' }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-route me-2"></i>Full Header Relay Trace</div>
+      <div class="card-body">
+        {% if parsed.received_chain %}
+        <div class="table-responsive">
+        <table class="table table-sm table-striped">
+          <thead><tr><th>Hop</th><th>From</th><th>By</th><th>IPs</th><th>Timestamp</th></tr></thead>
+          <tbody>
+          {% for hop in parsed.received_chain %}
+            <tr><td>{{ hop.hop_number }}</td><td>{{ hop.from_host }}</td><td>{{ hop.by_host }}</td>
+                <td>{{ hop.ips|join(', ') }}</td><td class="small">{{ hop.timestamp }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No Received headers found in this message.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
