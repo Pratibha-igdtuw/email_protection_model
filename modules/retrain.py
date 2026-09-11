@@ -11,7 +11,7 @@ from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 
-csv.field_size_limit(sys.maxsize)
+csv.field_size_limit(2147483647)
 
 HERE = os.path.dirname(os.path.abspath(__file__))
 ML_DIR = os.path.join(HERE, '..', 'ml_model')
