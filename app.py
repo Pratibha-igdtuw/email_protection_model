@@ -68,7 +68,8 @@ def run_pipeline(raw_email_bytes):
         parsed.get('originating_ip'), parsed.get('sender_domain'), db.session, BlacklistEntry
     )
     abuseipdb_result = blacklist_mod.check_abuseipdb(parsed.get('originating_ip'))
-    bl_score, bl_reasons = blacklist_mod.compute_blacklist_score(local_hits, abuseipdb_result)
+    phishtank_result = blacklist_mod.check_phishtank(parsed.get('sender_domain'), urls)
+    bl_score, bl_reasons = blacklist_mod.compute_blacklist_score(local_hits, abuseipdb_result, phishtank_result)
 
     risk_result = risk_score.compute_combined_score(
         classify_result, auth_result, geo_mismatch, whois_result, bl_score
@@ -84,6 +85,7 @@ def run_pipeline(raw_email_bytes):
         'classify_result': classify_result,
         'local_blacklist_hits': local_hits,
         'abuseipdb_result': abuseipdb_result,
+        'phishtank_result': phishtank_result,
         'blacklist_score': bl_score,
         'blacklist_reasons': bl_reasons,
         'risk_result': risk_result,

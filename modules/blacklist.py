@@ -1,16 +1,30 @@
 """
-Blacklist / reputation check for sender IP and domain.
-Two tiers:
+Blacklist / reputation check for sender IP, sender domain, and URLs found
+in the email body. Three tiers:
   1. Local growing SQLite-backed blacklist (populated by analysts / previous cases).
-  2. Optional external API (AbuseIPDB) if an API key is configured via env var
+  2. PhishTank-verified phishing domain snapshot, bundled in
+     ml_model/phishtank_domains.csv (see ml_model/build_training_dataset.py's
+     sibling fetch step / README for how to refresh it). PhishTank publishes
+     confirmed, community-verified phishing URLs — this checks the sender
+     domain and any URLs in the message against that list directly, which is
+     the correct use of PhishTank data (it's a URL/domain reputation feed,
+     not email text, so it doesn't belong in the content classifier's
+     training set).
+  3. Optional external API (AbuseIPDB) if an API key is configured via env var
      ABUSEIPDB_API_KEY. Fails gracefully with a clear status if not configured
-     or unreachable, matching the CleanTalk "Block Lists" equivalent described
-     in the spec.
+     or unreachable.
 """
 import os
+import re
+import csv
 import requests
 
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
+
+HERE = os.path.dirname(os.path.abspath(__file__))
+PHISHTANK_PATH = os.path.join(HERE, '..', 'ml_model', 'phishtank_domains.csv')
+
+_phishtank_domains = None
 
 
 def check_local_blacklist(ip_address, domain, db_session, BlacklistEntry):
@@ -50,7 +64,50 @@ def check_abuseipdb(ip_address, timeout=4):
         return {'status': 'unavailable', 'message': str(e)}
 
 
-def compute_blacklist_score(local_hits, abuseipdb_result):
+def _load_phishtank_domains():
+    """Loads the bundled PhishTank-verified domain snapshot once per process."""
+    global _phishtank_domains
+    if _phishtank_domains is None:
+        _phishtank_domains = {}
+        if os.path.exists(PHISHTANK_PATH):
+            with open(PHISHTANK_PATH, newline='', encoding='utf-8') as f:
+                for row in csv.DictReader(f):
+                    d = (row.get('domain') or '').strip().lower()
+                    if d:
+                        _phishtank_domains[d] = {
+                            'target': row.get('target') or 'Other',
+                            'verified_time': row.get('verified_time'),
+                        }
+    return _phishtank_domains
+
+
+def check_phishtank(sender_domain, urls):
+    """Cross-references the sender domain and any URL hosts found in the
+    email body against the bundled PhishTank-verified phishing domain
+    snapshot. Returns every matching domain with the brand it was
+    impersonating and when PhishTank verified it."""
+    domains_db = _load_phishtank_domains()
+    if not domains_db:
+        return {'status': 'unavailable', 'hits': [], 'dataset_size': 0}
+
+    candidates = set()
+    if sender_domain:
+        candidates.add(sender_domain.strip().lower())
+    for u in urls or []:
+        m = re.search(r'https?://([^/]+)', u)
+        if m:
+            candidates.add(m.group(1).split(':')[0].lower())
+
+    hits = []
+    for domain in candidates:
+        info = domains_db.get(domain)
+        if info:
+            hits.append({'domain': domain, 'target': info['target'], 'verified_time': info['verified_time']})
+
+    return {'status': 'checked', 'hits': hits, 'dataset_size': len(domains_db)}
+
+
+def compute_blacklist_score(local_hits, abuseipdb_result, phishtank_result=None):
     score = 0
     reasons = []
     if local_hits:
@@ -64,4 +121,11 @@ def compute_blacklist_score(local_hits, abuseipdb_result):
         elif conf >= 25:
             score += 10
             reasons.append(f"AbuseIPDB confidence score {conf}% — moderate abuse history")
+    if phishtank_result and phishtank_result.get('hits'):
+        score += 20
+        for h in phishtank_result['hits']:
+            reasons.append(
+                f"Domain '{h['domain']}' matches a PhishTank-verified phishing domain "
+                f"(impersonating: {h['target']}, verified {h['verified_time']})"
+            )
     return min(score, 20), reasons

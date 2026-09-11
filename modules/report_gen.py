@@ -175,14 +175,32 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
         elements.append(Paragraph(f"WHOIS status: {whois_r.get('status', 'unavailable')} — "
                                    f"{whois_r.get('message', '')}", normal))
 
-    # --- Blacklist ---
-    bl = case.get('blacklist_hits', [])
+    # --- Blacklist / Reputation ---
+    local_hits = case.get('local_blacklist_hits', [])
+    abuseipdb_r = case.get('abuseipdb_result', {})
+    phishtank_r = case.get('phishtank_result', {})
+    bl_reasons = case.get('blacklist_reasons', [])
     elements.append(Paragraph("Blacklist / Reputation Check", h2))
-    if bl:
-        for hit in bl:
-            elements.append(Paragraph(f"• {hit.get('indicator')} ({hit.get('type')}) — {hit.get('reason')}", normal))
-    else:
-        elements.append(Paragraph("No local blacklist matches.", normal))
+    if local_hits:
+        for hit in local_hits:
+            elements.append(Paragraph(
+                f"• Local blacklist: {hit.get('indicator')} ({hit.get('type')}) — {hit.get('reason')}", normal))
+    if phishtank_r.get('hits'):
+        for hit in phishtank_r['hits']:
+            elements.append(Paragraph(
+                f"• PhishTank-verified: {hit.get('domain')} (impersonating {hit.get('target')}, "
+                f"verified {hit.get('verified_time')})", normal))
+    if abuseipdb_r.get('status') == 'success':
+        elements.append(Paragraph(
+            f"• AbuseIPDB confidence score: {abuseipdb_r.get('abuse_confidence_score')}% "
+            f"({abuseipdb_r.get('total_reports')} reports)", normal))
+    if not local_hits and not phishtank_r.get('hits') and abuseipdb_r.get('status') != 'success':
+        elements.append(Paragraph("No blacklist, PhishTank, or AbuseIPDB matches.", normal))
+    if phishtank_r.get('dataset_size'):
+        elements.append(Paragraph(
+            f"(Checked sender domain and message URLs against a snapshot of "
+            f"{phishtank_r['dataset_size']:,} PhishTank-verified phishing domains.)",
+            ParagraphStyle('Small', parent=normal, fontSize=7.5, textColor=colors.HexColor('#94a3b8'))))
 
     # --- Header trace ---
     elements.append(Paragraph("Full Header Relay Trace", h2))
