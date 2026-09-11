@@ -30,7 +30,6 @@ from modules import mailbox_connector
 from modules import oauth_gmail
 from modules import chain_of_custody
 from modules import retrain as retrain_mod
-from modules import blacklist as blacklist_freshness_mod
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
@@ -80,8 +79,10 @@ if app.config.get('AUTO_CREATE_TABLES'):
 # Authentication / CSRF protection
 # ---------------------------------------------------------------------------
 
+# Endpoints reachable without being logged in. 'static' covers CSS/JS/images.
+PUBLIC_ENDPOINTS = {'landing', 'login', 'signup', 'static'}
 
-<<<<<<< HEAD
+
 @app.before_request
 def _require_login_and_csrf():
     # Every session gets a CSRF token, including anonymous visitors on the
@@ -92,7 +93,7 @@ def _require_login_and_csrf():
     if request.endpoint in PUBLIC_ENDPOINTS or request.endpoint is None:
         return
 
-    if not session.get('authenticated'):
+    if not current_user.is_authenticated:
         return redirect(url_for('login', next=request.path))
 
     if request.method == 'POST':
@@ -106,89 +107,8 @@ def _inject_csrf_token():
     return {'csrf_token': lambda: session.get('csrf_token', '')}
 
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-
-    # If a normal user is already logged in
-    if current_user.is_authenticated:
-        return redirect(url_for('workspace'))
-
-    email = ''
-
-    if request.method == 'POST':
-
-        # Get both possible login fields
-        email = request.form.get('email', '').strip().lower()
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        remember = bool(request.form.get('remember'))
-
-        # -------------------------------
-        # ANALYST LOGIN
-        # -------------------------------
-
-        if username:
-            submitted = request.form.get('csrf_token', '')
-
-            if not submitted or not secrets.compare_digest(
-                submitted,
-                session.get('csrf_token', '')
-            ):
-                flash('Session expired — please try logging in again.', 'error')
-                return redirect(url_for('login'))
-
-            if (
-                username == ANALYST_USERNAME
-                and check_password_hash(ANALYST_PASSWORD_HASH, password)
-            ):
-                session['authenticated'] = True
-                session['analyst_username'] = username
-
-                flash('Logged in as Analyst.', 'success')
-
-                next_url = request.args.get('next') or url_for('index')
-                return redirect(next_url)
-
-            flash('Invalid analyst username or password.', 'error')
-
-        # -------------------------------
-        # NORMAL USER LOGIN
-        # -------------------------------
-
-        elif email:
-
-            user = User.query.filter_by(email=email).first()
-
-            if not user or not user.check_password(password):
-                flash('Incorrect email or password.', 'error')
-
-            else:
-                login_user(user, remember=remember)
-
-                flash(
-                    f"Welcome back, {user.full_name.split()[0]}.",
-                    'success'
-                )
-
-                next_page = request.args.get('next')
-
-                return redirect(
-                    next_page or url_for('workspace')
-                )
-
-        else:
-            flash('Please enter your login details.', 'error')
-
-    return render_template('login.html', email=email)
-
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
-
 # Check whether the PhishTank snapshot is stale.
-_freshness = blacklist_freshness_mod.get_phishtank_freshness()
+_freshness = blacklist_mod.get_phishtank_freshness()
 if _freshness['stale']:
     logger.warning(
         "PhishTank domain snapshot is stale (last refreshed: %s, age: %s days). "
@@ -279,8 +199,6 @@ def signup():
     return render_template('signup.html', form=form)
 
 
-
-
 @app.route('/login', methods=['GET', 'POST'])
 @limiter.limit("15 per minute")
 def login():
@@ -303,7 +221,6 @@ def login():
             return redirect(next_page or url_for('workspace'))
 
     return render_template('login.html', email=email)
-
 
 
 @app.route('/logout')
