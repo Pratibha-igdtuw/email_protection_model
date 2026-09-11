@@ -201,6 +201,12 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
             f"(Checked sender domain and message URLs against a snapshot of "
             f"{phishtank_r['dataset_size']:,} PhishTank-verified phishing domains.)",
             ParagraphStyle('Small', parent=normal, fontSize=7.5, textColor=colors.HexColor('#94a3b8'))))
+    if phishtank_r.get('stale'):
+        age_note = f" ({phishtank_r['age_days']} days old)" if phishtank_r.get('age_days') is not None else ""
+        elements.append(Paragraph(
+            f"⚠ PhishTank snapshot is stale{age_note}. A clean result here does not rule out a "
+            f"domain listed after the snapshot was taken. Refresh via ml_model/refresh_phishtank.py.",
+            ParagraphStyle('StaleWarn', parent=normal, fontSize=8, textColor=colors.HexColor('#b45309'))))
 
     # --- Header trace ---
     elements.append(Paragraph("Full Header Relay Trace", h2))

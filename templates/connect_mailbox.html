@@ -4,10 +4,24 @@
 <div class="row justify-content-center">
   <div class="col-lg-6">
     <h3 class="fw-bold mb-1">Connect Your Mailbox</h3>
-    <p class="text-muted">Lightweight, API-based integration — no infrastructure overhaul needed. Pulls your most recent emails over IMAP for automatic threat analysis.</p>
+    <p class="text-muted">Pulls your most recent emails for automatic threat analysis.</p>
+
+    {% if gmail_oauth_available %}
+    <div class="card shadow-sm mb-3 border-primary">
+      <div class="card-body p-4">
+        <h6 class="fw-bold"><i class="fa-brands fa-google me-2"></i>Gmail (OAuth — recommended)</h6>
+        <p class="text-muted small mb-3">Sign in with Google's standard consent screen — no app password to generate, read-only access, revocable any time from your Google Account.</p>
+        <a href="{{ url_for('connect_mailbox_oauth_start') }}" class="btn btn-outline-primary w-100">
+          <i class="fa-brands fa-google me-2"></i>Connect with Google
+        </a>
+      </div>
+    </div>
+    {% endif %}
 
     <div class="card shadow-sm">
       <div class="card-body p-4">
+        <h6 class="fw-bold mb-2">IMAP with app password</h6>
+        <p class="text-muted small">Works today for Gmail, Outlook.com, and Exchange Online with zero server-side setup. Used for Outlook/Exchange either way, since only Gmail OAuth is wired up so far.</p>
         <form action="{{ url_for('connect_mailbox_fetch') }}" method="post">
           <div class="mb-3">
             <label class="form-label">Provider</label>
@@ -36,7 +50,7 @@
         </form>
       </div>
     </div>
-    <p class="small text-muted mt-2">Credentials are used only to fetch messages for this session and are not stored.</p>
+    <p class="small text-muted mt-2">App-password credentials are used only to fetch messages for this session and are not stored. Gmail OAuth tokens are stored (scoped to read-only mail access) so you don't have to reconnect every time — disconnect any time from this page.</p>
   </div>
 </div>
 {% endblock %}
