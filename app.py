@@ -98,24 +98,78 @@ def _inject_csrf_token():
 
 @app.route('/login', methods=['GET', 'POST'])
 def login():
-    if request.method == 'POST':
-        submitted = request.form.get('csrf_token', '')
-        if not submitted or not secrets.compare_digest(submitted, session.get('csrf_token', '')):
-            flash('Session expired — please try logging in again.', 'error')
-            return redirect(url_for('login'))
 
+    # If a normal user is already logged in
+    if current_user.is_authenticated:
+        return redirect(url_for('workspace'))
+
+    email = ''
+
+    if request.method == 'POST':
+
+        # Get both possible login fields
+        email = request.form.get('email', '').strip().lower()
         username = request.form.get('username', '').strip()
         password = request.form.get('password', '')
-        if username == ANALYST_USERNAME and check_password_hash(ANALYST_PASSWORD_HASH, password):
-            session['authenticated'] = True
-            session['analyst_username'] = username
-            flash('Logged in.', 'success')
-            next_url = request.args.get('next') or url_for('index')
-            return redirect(next_url)
-        flash('Invalid username or password.', 'error')
-        return redirect(url_for('login'))
+        remember = bool(request.form.get('remember'))
 
-    return render_template('login.html')
+        # -------------------------------
+        # ANALYST LOGIN
+        # -------------------------------
+
+        if username:
+            submitted = request.form.get('csrf_token', '')
+
+            if not submitted or not secrets.compare_digest(
+                submitted,
+                session.get('csrf_token', '')
+            ):
+                flash('Session expired — please try logging in again.', 'error')
+                return redirect(url_for('login'))
+
+            if (
+                username == ANALYST_USERNAME
+                and check_password_hash(ANALYST_PASSWORD_HASH, password)
+            ):
+                session['authenticated'] = True
+                session['analyst_username'] = username
+
+                flash('Logged in as Analyst.', 'success')
+
+                next_url = request.args.get('next') or url_for('index')
+                return redirect(next_url)
+
+            flash('Invalid analyst username or password.', 'error')
+
+        # -------------------------------
+        # NORMAL USER LOGIN
+        # -------------------------------
+
+        elif email:
+
+            user = User.query.filter_by(email=email).first()
+
+            if not user or not user.check_password(password):
+                flash('Incorrect email or password.', 'error')
+
+            else:
+                login_user(user, remember=remember)
+
+                flash(
+                    f"Welcome back, {user.full_name.split()[0]}.",
+                    'success'
+                )
+
+                next_page = request.args.get('next')
+
+                return redirect(
+                    next_page or url_for('workspace')
+                )
+
+        else:
+            flash('Please enter your login details.', 'error')
+
+    return render_template('login.html', email=email)
 
 
 @app.route('/logout')
@@ -242,27 +296,6 @@ def signup():
     return render_template('signup.html', form=form)
 
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if current_user.is_authenticated:
-        return redirect(url_for('workspace'))
-
-    email = ''
-    if request.method == 'POST':
-        email = request.form.get('email', '').strip().lower()
-        password = request.form.get('password', '')
-        remember = bool(request.form.get('remember'))
-        user = User.query.filter_by(email=email).first()
-
-        if not user or not user.check_password(password):
-            flash('Incorrect email or password.', 'error')
-        else:
-            login_user(user, remember=remember)
-            flash(f"Welcome back, {user.full_name.split()[0]}.", 'success')
-            next_page = request.args.get('next')
-            return redirect(next_page or url_for('workspace'))
-
-    return render_template('login.html', email=email)
 
 
 @app.route('/logout')
