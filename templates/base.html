@@ -22,25 +22,38 @@
     </button>
     <div class="collapse navbar-collapse" id="nav">
       <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
-        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='workspace' }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ['index', 'workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-1"></i>Connect Mailbox</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns me-1"></i>Dashboard</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='threat_map' }}" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia me-1"></i>Threat Map</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='threat_clusters' }}" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project me-1"></i>Clusters</a></li>
+
         {% if current_user.is_authenticated %}
         <li class="nav-item dropdown ms-lg-2 mt-2 mt-lg-0">
           <button class="user-menu-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
             <span class="user-avatar">{{ current_user.initials }}</span>
             {{ current_user.full_name.split(' ')[0] }}
           </button>
+
           <ul class="dropdown-menu dropdown-menu-end">
             <li class="dropdown-item-text">
               <div class="fw-semibold">{{ current_user.full_name }}</div>
               <small>{{ current_user.email }}</small>
             </li>
+
             <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns me-2"></i>My cases</a></li>
-            <li><a class="dropdown-item" href="{{ url_for('logout') }}"><i class="fa-solid fa-right-from-bracket me-2"></i>Log out</a></li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('dashboard') }}">
+                <i class="fa-solid fa-table-columns me-2"></i>My cases
+              </a>
+            </li>
+
+            <li>
+              <a class="dropdown-item" href="{{ url_for('logout') }}">
+                <i class="fa-solid fa-right-from-bracket me-2"></i>Log out
+              </a>
+            </li>
           </ul>
         </li>
         {% endif %}

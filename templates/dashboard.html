@@ -5,6 +5,7 @@
   <h3 class="fw-bold mb-0">Analyst Case Dashboard</h3>
   <div class="d-flex gap-2">
     <form method="post" action="{{ url_for('retrain_model') }}" onsubmit="return confirm('Retrain the classifier using all analyst feedback collected so far?');">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
       <button class="btn btn-outline-primary btn-sm" type="submit"><i class="fa-solid fa-arrows-rotate me-1"></i>Retrain Model with Feedback</button>
     </form>
     <a href="{{ url_for('export_csv') }}" class="btn btn-outline-dark btn-sm">

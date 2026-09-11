@@ -9,6 +9,7 @@ from flask import (Flask, render_template, request, redirect, url_for,
                     flash, send_file, jsonify, Response, abort, session)
 from flask_login import (LoginManager, login_user, logout_user, login_required,
                           current_user)
+from flask_wtf import CSRFProtect
 from flask_migrate import Migrate
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -41,6 +42,8 @@ logger = logging.getLogger('email_threat_platform')
 
 app = Flask(__name__)
 app.config.from_object(get_config())
+
+csrf = CSRFProtect(app)
 
 db.init_app(app)
 migrate = Migrate(app, db)  # `flask db migrate` / `flask db upgrade` -- see README

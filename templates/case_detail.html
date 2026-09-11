@@ -41,6 +41,7 @@
           </span>
         </p>
         <form method="post" action="{{ url_for('submit_feedback', case_ref=case.case_ref) }}" class="d-flex gap-2">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <button type="submit" name="verdict" value="Confirmed Phishing" class="btn btn-sm btn-outline-danger">
             <i class="fa-solid fa-triangle-exclamation me-1"></i>Confirm Phishing
           </button>
@@ -57,6 +58,7 @@
       <div class="card-header">Analyst Notes</div>
       <div class="card-body">
         <form method="post" action="{{ url_for('update_notes', case_ref=case.case_ref) }}">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
           <textarea name="notes" class="form-control mb-2" rows="8" placeholder="Add investigation notes...">{{ case.analyst_notes or '' }}</textarea>
           <button type="submit" class="btn btn-dark btn-sm"><i class="fa-solid fa-floppy-disk me-1"></i>Save Notes</button>
         </form>
