@@ -5,14 +5,17 @@ is retrained so future false positives on similar content decrease over time.
 """
 import os
 import csv
+import sys
 import joblib
 from sklearn.feature_extraction.text import TfidfVectorizer
 from sklearn.naive_bayes import MultinomialNB
 from sklearn.pipeline import Pipeline
 
+csv.field_size_limit(sys.maxsize)
+
 HERE = os.path.dirname(os.path.abspath(__file__))
 ML_DIR = os.path.join(HERE, '..', 'ml_model')
-BASE_DATASET = os.path.join(ML_DIR, 'sample_dataset.csv')
+BASE_DATASET = os.path.join(ML_DIR, 'training_dataset.csv')
 FEEDBACK_DATASET = os.path.join(ML_DIR, 'feedback_dataset.csv')
 MODEL_PATH = os.path.join(ML_DIR, 'phishing_model.joblib')
 
@@ -55,7 +58,7 @@ def retrain_with_feedback():
         return {'status': 'error', 'message': 'Need both phishing and legitimate examples to retrain.'}
 
     pipeline = Pipeline([
-        ('tfidf', TfidfVectorizer(stop_words='english', ngram_range=(1, 2), min_df=1)),
+        ('tfidf', TfidfVectorizer(stop_words='english', ngram_range=(1, 2), min_df=2, max_df=0.9)),
         ('clf', MultinomialNB()),
     ])
     pipeline.fit(all_texts, all_labels)

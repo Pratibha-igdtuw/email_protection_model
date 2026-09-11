@@ -1,13 +1,42 @@
 from datetime import datetime
 from flask_sqlalchemy import SQLAlchemy
+from flask_login import UserMixin
+from werkzeug.security import generate_password_hash, check_password_hash
 
 db = SQLAlchemy()
+
+
+class User(UserMixin, db.Model):
+    __tablename__ = 'users'
+
+    id = db.Column(db.Integer, primary_key=True)
+    full_name = db.Column(db.String(255), nullable=False)
+    email = db.Column(db.String(255), unique=True, nullable=False)
+    organization = db.Column(db.String(255))
+    password_hash = db.Column(db.String(255), nullable=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    def set_password(self, raw_password):
+        self.password_hash = generate_password_hash(raw_password)
+
+    def check_password(self, raw_password):
+        return check_password_hash(self.password_hash, raw_password)
+
+    @property
+    def initials(self):
+        parts = [p for p in self.full_name.split() if p]
+        if not parts:
+            return self.email[:2].upper()
+        if len(parts) == 1:
+            return parts[0][:2].upper()
+        return (parts[0][0] + parts[-1][0]).upper()
 
 
 class Case(db.Model):
     __tablename__ = 'cases'
 
     id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
     case_ref = db.Column(db.String(32), unique=True, nullable=False)
     subject = db.Column(db.String(512))
     sender_from = db.Column(db.String(512))
@@ -39,6 +68,8 @@ class Case(db.Model):
     report_path = db.Column(db.String(512))
     raw_email_path = db.Column(db.String(512))
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    owner = db.relationship('User', backref=db.backref('cases', lazy='dynamic'))
 
     def to_dict(self):
         return {
@@ -86,3 +117,4 @@ class FeedbackLog(db.Model):
     verdict = db.Column(db.String(24))  # 'Confirmed Phishing' or 'False Positive'
     used_in_training = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+

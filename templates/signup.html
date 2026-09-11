@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>Log in — ThreatForensicAI</title>
+<title>Create your account — ThreatForensicAI</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
@@ -16,16 +16,16 @@
   <div class="auth-brand-panel">
     <a class="brand" href="{{ url_for('landing') }}"><i class="fa-solid fa-shield-halved"></i>ThreatForensic<span style="color:#7fa0ff;">AI</span></a>
     <div class="auth-brand-copy">
-      <h2>Welcome back to the case file.</h2>
-      <p>Log in to pick up where you left off — your dashboard, threat map, and every case you've analyzed.</p>
+      <h2>Every case starts with proof.</h2>
+      <p>Create a free workspace and run your first six-layer email analysis in under two minutes.</p>
     </div>
-    <div class="auth-foot">Every case gets its own SHA-256 evidence hash.</div>
+    <div class="auth-foot">Mailbox credentials are used once, never stored.</div>
   </div>
 
   <div class="auth-form-panel">
     <div class="auth-form-inner">
-      <h1>Log in</h1>
-      <p class="sub">Enter your details to access your workspace.</p>
+      <h1>Create your account</h1>
+      <p class="sub">Free to start — no credit card required.</p>
 
       {% with messages = get_flashed_messages(with_categories=true) %}
         {% if messages %}
@@ -38,24 +38,28 @@
         {% endif %}
       {% endwith %}
 
-      <form method="post" action="{{ url_for('login') }}">
-        <label class="form-label">Email</label>
-        <input type="email" name="email" class="form-control" required autofocus placeholder="you@company.com" value="{{ email or '' }}">
+      <form method="post" action="{{ url_for('signup') }}">
+        <label class="form-label">Full name</label>
+        <input type="text" name="full_name" class="form-control" required autofocus placeholder="Jordan Reyes" value="{{ form.full_name if form else '' }}">
+
+        <label class="form-label">Work email</label>
+        <input type="email" name="email" class="form-control" required placeholder="you@company.com" value="{{ form.email if form else '' }}">
+
+        <label class="form-label">Organization <span class="text-muted fw-normal">(optional)</span></label>
+        <input type="text" name="organization" class="form-control" placeholder="Company or team name" value="{{ form.organization if form else '' }}">
 
         <label class="form-label">Password</label>
-        <input type="password" name="password" class="form-control" required placeholder="••••••••">
+        <input type="password" name="password" class="form-control" required minlength="8" placeholder="At least 8 characters">
 
-        <div class="form-check mt-3">
-          <input class="form-check-input" type="checkbox" name="remember" id="remember" checked>
-          <label class="form-check-label small text-muted" for="remember">Keep me logged in</label>
-        </div>
+        <label class="form-label">Confirm password</label>
+        <input type="password" name="confirm_password" class="form-control" required minlength="8" placeholder="Re-enter your password">
 
         <div class="d-grid mt-4">
-          <button type="submit" class="btn btn-primary btn-lg">Log in</button>
+          <button type="submit" class="btn btn-primary btn-lg">Create free account</button>
         </div>
       </form>
 
-      <div class="auth-switch">Don't have an account? <a href="{{ url_for('signup') }}">Create one free</a></div>
+      <div class="auth-switch">Already have an account? <a href="{{ url_for('login') }}">Log in</a></div>
     </div>
   </div>
 </div>
