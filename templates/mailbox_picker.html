@@ -1,0 +1,25 @@
+{% extends 'base.html' %}
+{% block title %}Select Email to Analyze{% endblock %}
+{% block content %}
+<h3 class="fw-bold mb-1">Fetched {{ count }} Recent Emails</h3>
+<p class="text-muted mb-4">Pick one to run the full threat analysis pipeline on.</p>
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-dark"><tr><th>From</th><th>Subject</th><th></th></tr></thead>
+      <tbody>
+      {% for p in previews %}
+        <tr>
+          <td>{{ p['from'] }}</td>
+          <td>{{ p['subject'] }}</td>
+          <td><a href="{{ url_for('connect_mailbox_analyze', batch_id=batch_id, index=p['index']) }}" class="btn btn-sm btn-primary">Analyze</a></td>
+        </tr>
+      {% else %}
+        <tr><td colspan="3" class="text-center text-muted py-4">No emails found in this mailbox.</td></tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endblock %}

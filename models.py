@@ -20,6 +20,21 @@ class Case(db.Model):
     dkim_result = db.Column(db.String(32))
     dmarc_result = db.Column(db.String(16))
     country = db.Column(db.String(128))
+
+    # Geolocation clustering / map fields
+    latitude = db.Column(db.Float)
+    longitude = db.Column(db.Float)
+    asn = db.Column(db.String(64))
+    isp = db.Column(db.String(255))
+
+    # Forensic chain-of-custody
+    evidence_sha256 = db.Column(db.String(64))
+    hash_generated_at = db.Column(db.DateTime)
+
+    # Self-improving feedback loop
+    analyst_verdict = db.Column(db.String(24), default='Unreviewed')  # Unreviewed / Confirmed Phishing / False Positive
+    body_text = db.Column(db.Text)  # stored for retraining on feedback
+
     analyst_notes = db.Column(db.Text)
     report_path = db.Column(db.String(512))
     raw_email_path = db.Column(db.String(512))
@@ -40,6 +55,12 @@ class Case(db.Model):
             'dkim_result': self.dkim_result,
             'dmarc_result': self.dmarc_result,
             'country': self.country,
+            'latitude': self.latitude,
+            'longitude': self.longitude,
+            'asn': self.asn,
+            'isp': self.isp,
+            'evidence_sha256': self.evidence_sha256,
+            'analyst_verdict': self.analyst_verdict,
             'analyst_notes': self.analyst_notes,
             'created_at': self.created_at.strftime('%Y-%m-%d %H:%M'),
         }
@@ -53,3 +74,15 @@ class BlacklistEntry(db.Model):
     indicator_type = db.Column(db.String(16), nullable=False)  # 'ip' or 'domain'
     reason = db.Column(db.String(512))
     added_on = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class FeedbackLog(db.Model):
+    """Tracks analyst feedback used to retrain the ML classifier
+    (Self-improving model / feedback loop USP)."""
+    __tablename__ = 'feedback_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    case_ref = db.Column(db.String(32))
+    verdict = db.Column(db.String(24))  # 'Confirmed Phishing' or 'False Positive'
+    used_in_training = db.Column(db.Boolean, default=False)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow)

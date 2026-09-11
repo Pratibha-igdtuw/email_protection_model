@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Connect Mailbox — ThreatForensicAI{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-6">
+    <h3 class="fw-bold mb-1">Connect Your Mailbox</h3>
+    <p class="text-muted">Lightweight, API-based integration — no infrastructure overhaul needed. Pulls your most recent emails over IMAP for automatic threat analysis.</p>
+
+    <div class="card shadow-sm">
+      <div class="card-body p-4">
+        <form action="{{ url_for('connect_mailbox_fetch') }}" method="post">
+          <div class="mb-3">
+            <label class="form-label">Provider</label>
+            <select name="provider" class="form-select">
+              <option value="gmail">Gmail</option>
+              <option value="outlook">Outlook.com</option>
+              <option value="exchange">Exchange Online / Microsoft 365</option>
+            </select>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Email address</label>
+            <input type="email" name="username" class="form-control" required placeholder="you@gmail.com">
+          </div>
+          <div class="mb-3">
+            <label class="form-label">App Password</label>
+            <input type="password" name="app_password" class="form-control" required placeholder="16-character app password">
+            <div class="form-text">Not your normal login password. Generate one from your account's security settings after enabling IMAP / 2-Step Verification.</div>
+          </div>
+          <div class="mb-3">
+            <label class="form-label">Number of recent emails to fetch</label>
+            <input type="number" name="limit" class="form-control" value="10" min="1" max="50">
+          </div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary"><i class="fa-solid fa-envelope-circle-check me-2"></i>Fetch & Preview</button>
+          </div>
+        </form>
+      </div>
+    </div>
+    <p class="small text-muted mt-2">Credentials are used only to fetch messages for this session and are not stored.</p>
+  </div>
+</div>
+{% endblock %}

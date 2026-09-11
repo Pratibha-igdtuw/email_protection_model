@@ -26,7 +26,28 @@
           <tr><td>ML Probability</td><td>{{ case.ml_probability }}%</td></tr>
           <tr><td>SPF / DKIM / DMARC</td><td>{{ case.spf_result }} / {{ case.dkim_result }} / {{ case.dmarc_result }}</td></tr>
           <tr><td>Analyzed On</td><td>{{ case.created_at.strftime('%d %b %Y, %H:%M') }}</td></tr>
+          <tr><td>Evidence SHA-256</td><td class="small font-mono">{{ case.evidence_sha256 }}</td></tr>
         </table>
+      </div>
+    </div>
+
+    <div class="card shadow-sm mt-3">
+      <div class="card-header"><i class="fa-solid fa-robot me-2"></i>Self-Improving Feedback Loop</div>
+      <div class="card-body">
+        <p class="small text-muted">Confirm this verdict to feed it back into the classifier — reduces repeat false positives/negatives on similar content.</p>
+        <p class="mb-2">Current status:
+          <span class="badge {{ 'bg-success' if case.analyst_verdict=='Confirmed Phishing' else 'bg-secondary' if case.analyst_verdict=='Unreviewed' else 'bg-warning text-dark' }}">
+            {{ case.analyst_verdict }}
+          </span>
+        </p>
+        <form method="post" action="{{ url_for('submit_feedback', case_ref=case.case_ref) }}" class="d-flex gap-2">
+          <button type="submit" name="verdict" value="Confirmed Phishing" class="btn btn-sm btn-outline-danger">
+            <i class="fa-solid fa-triangle-exclamation me-1"></i>Confirm Phishing
+          </button>
+          <button type="submit" name="verdict" value="False Positive" class="btn btn-sm btn-outline-success">
+            <i class="fa-solid fa-check me-1"></i>Mark False Positive
+          </button>
+        </form>
       </div>
     </div>
   </div>

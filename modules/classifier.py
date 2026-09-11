@@ -21,6 +21,15 @@ def _get_model():
     return _model
 
 
+def reload_model():
+    """Force a re-read of the model file from disk — called after the
+    self-improving feedback loop retrains and overwrites the .joblib file,
+    so newly analyzed emails immediately use the updated classifier."""
+    global _model
+    _model = joblib.load(MODEL_PATH) if os.path.exists(MODEL_PATH) else None
+    return _model
+
+
 URGENCY_PHRASES = [
     'urgent', 'immediately', 'act now', 'verify your', 'suspended', 'final notice',
     'expire', 'expires', 'within 24 hours', 'within 48 hours', 'click here',

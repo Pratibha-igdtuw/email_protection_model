@@ -7,7 +7,7 @@ from datetime import datetime
 from flask import (Flask, render_template, request, redirect, url_for,
                     flash, send_file, jsonify, Response)
 
-from models import db, Case, BlacklistEntry
+from models import db, Case, BlacklistEntry, FeedbackLog
 from modules import parser as parser_mod
 from modules import auth_check
 from modules import geoip as geoip_mod
@@ -16,6 +16,10 @@ from modules import classifier
 from modules import blacklist as blacklist_mod
 from modules import risk_score
 from modules import report_gen
+from modules import clustering
+from modules import mailbox_connector
+from modules import chain_of_custody
+from modules import retrain as retrain_mod
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
@@ -92,6 +96,10 @@ def analyze():
         flash('Please paste raw email content or upload a .eml file.', 'error')
         return redirect(url_for('index'))
 
+    return _analyze_and_render(raw_email_bytes)
+
+
+def _analyze_and_render(raw_email_bytes):
     try:
         result = run_pipeline(raw_email_bytes)
     except Exception as e:
@@ -100,10 +108,11 @@ def analyze():
 
     case_ref = f"CASE-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
-    # Save raw email
+    # Save raw email + compute chain-of-custody hash at ingestion time
     raw_path = os.path.join(REPORTS_DIR, f"{case_ref}.eml")
     with open(raw_path, 'wb') as fh:
         fh.write(raw_email_bytes)
+    evidence_hash = chain_of_custody.compute_sha256(raw_email_bytes)
 
     parsed = result['parsed_email']
     risk = result['risk_result']
@@ -123,14 +132,22 @@ def analyze():
         dkim_result=auth['dkim'],
         dmarc_result=auth['dmarc'],
         country=geo.get('country') if geo.get('status') == 'success' else None,
+        latitude=geo.get('lat') if geo.get('status') == 'success' else None,
+        longitude=geo.get('lon') if geo.get('status') == 'success' else None,
+        asn=geo.get('asn') if geo.get('status') == 'success' else None,
+        isp=geo.get('isp') if geo.get('status') == 'success' else None,
+        evidence_sha256=evidence_hash,
+        hash_generated_at=datetime.utcnow(),
+        body_text=f"{parsed.get('subject','')} {parsed.get('body_plain','')}"[:5000],
         raw_email_path=raw_path,
     )
     db.session.add(case)
     db.session.commit()
 
-    # Generate PDF report
+    # Generate PDF report (includes chain-of-custody block)
+    custody_record = chain_of_custody.build_custody_record(case_ref, raw_path, evidence_hash)
     report_path = os.path.join(REPORTS_DIR, f"{case_ref}.pdf")
-    pipeline_case = {**result, 'case_id': case_ref}
+    pipeline_case = {**result, 'case_id': case_ref, 'custody_record': custody_record}
     report_gen.generate_pdf_report(pipeline_case, report_path)
     case.report_path = report_path
     db.session.commit()
@@ -200,6 +217,122 @@ def export_csv():
 def api_cases():
     cases = Case.query.order_by(Case.created_at.desc()).all()
     return jsonify([c.to_dict() for c in cases])
+
+
+# ---------------------------------------------------------------------------
+# USP 2 + 5: Geolocation clustering + Interactive Threat Map Dashboard
+# ---------------------------------------------------------------------------
+@app.route('/dashboard/map')
+def threat_map():
+    cases = Case.query.filter(Case.latitude.isnot(None), Case.longitude.isnot(None)).all()
+    summary = clustering.repeat_offender_summary(Case.query.all())
+    markers = [{
+        'case_ref': c.case_ref,
+        'lat': c.latitude,
+        'lon': c.longitude,
+        'severity': c.severity,
+        'score': c.combined_score,
+        'country': c.country,
+        'isp': c.isp,
+        'domain': c.sender_domain,
+        'subject': (c.subject or '')[:80],
+    } for c in cases]
+    return render_template('map.html', markers=markers, summary=summary)
+
+
+@app.route('/dashboard/clusters')
+def threat_clusters():
+    all_cases = Case.query.order_by(Case.created_at.desc()).all()
+    clusters = clustering.build_clusters(all_cases)
+    return render_template('clusters.html', clusters=clusters)
+
+
+# ---------------------------------------------------------------------------
+# USP 6: Lightweight Gmail / Outlook / Exchange (IMAP) integration
+# ---------------------------------------------------------------------------
+@app.route('/connect-mailbox', methods=['GET'])
+def connect_mailbox():
+    return render_template('connect_mailbox.html')
+
+
+@app.route('/connect-mailbox/fetch', methods=['POST'])
+def connect_mailbox_fetch():
+    provider = request.form.get('provider', 'gmail')
+    username = request.form.get('username', '').strip()
+    app_password = request.form.get('app_password', '').strip()
+    limit = int(request.form.get('limit', 10))
+
+    if not username or not app_password:
+        flash('Email address and app password are required.', 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    result = mailbox_connector.fetch_recent_emails(provider, username, app_password, limit=limit)
+    if result['status'] != 'success':
+        flash(f"Mailbox connection failed: {result['message']}", 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    previews = []
+    for idx, raw in enumerate(result['emails']):
+        p = mailbox_connector.quick_preview(raw)
+        p['index'] = idx
+        previews.append(p)
+
+    # Stash raw bytes in a short-lived server-side cache file per session-less demo use
+    cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    batch_id = uuid.uuid4().hex[:10]
+    for idx, raw in enumerate(result['emails']):
+        with open(os.path.join(cache_dir, f"{batch_id}_{idx}.eml"), 'wb') as f:
+            f.write(raw)
+
+    return render_template('mailbox_picker.html', previews=previews, batch_id=batch_id, count=result['count'])
+
+
+@app.route('/connect-mailbox/analyze/<batch_id>/<int:index>')
+def connect_mailbox_analyze(batch_id, index):
+    cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
+    path = os.path.join(cache_dir, f"{batch_id}_{index}.eml")
+    if not os.path.exists(path):
+        flash('This fetched email is no longer available — please reconnect and fetch again.', 'error')
+        return redirect(url_for('connect_mailbox'))
+    with open(path, 'rb') as f:
+        raw_email_bytes = f.read()
+    return _analyze_and_render(raw_email_bytes)
+
+
+# ---------------------------------------------------------------------------
+# USP 7: Self-improving model — analyst feedback loop
+# ---------------------------------------------------------------------------
+@app.route('/case/<case_ref>/feedback', methods=['POST'])
+def submit_feedback(case_ref):
+    case = Case.query.filter_by(case_ref=case_ref).first_or_404()
+    verdict = request.form.get('verdict')
+    if verdict not in ('Confirmed Phishing', 'False Positive'):
+        flash('Invalid verdict.', 'error')
+        return redirect(url_for('case_detail', case_ref=case_ref))
+
+    case.analyst_verdict = verdict
+    label = 1 if verdict == 'Confirmed Phishing' else 0
+    retrain_mod.add_feedback_example(case.body_text or case.subject or '', label)
+    db.session.add(FeedbackLog(case_ref=case_ref, verdict=verdict))
+    db.session.commit()
+
+    flash(f'Feedback recorded ({verdict}). This example will be used next time the model is retrained.', 'success')
+    return redirect(url_for('case_detail', case_ref=case_ref))
+
+
+@app.route('/retrain-model', methods=['POST'])
+def retrain_model():
+    result = retrain_mod.retrain_with_feedback()
+    if result['status'] == 'success':
+        classifier.reload_model()
+        FeedbackLog.query.update({'used_in_training': True})
+        db.session.commit()
+        flash(f"Model retrained on {result['total_samples']} samples "
+              f"({result['feedback_samples']} from analyst feedback).", 'success')
+    else:
+        flash(f"Retraining skipped: {result['message']}", 'error')
+    return redirect(url_for('dashboard'))
 
 
 if __name__ == '__main__':

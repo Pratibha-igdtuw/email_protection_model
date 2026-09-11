@@ -1,0 +1,38 @@
+{% extends 'base.html' %}
+{% block title %}Threat Clusters — ThreatForensicAI{% endblock %}
+{% block content %}
+<h3 class="fw-bold mb-1">Coordinated Campaign / Repeat-Offender Clusters</h3>
+<p class="text-muted mb-4">Cases grouped by shared originating IP, hosting ASN, or sender domain — surfaces campaigns that look like separate emails but trace back to the same infrastructure.</p>
+
+{% if not clusters %}
+<div class="card shadow-sm"><div class="card-body text-center text-muted py-5">
+  No repeat infrastructure detected yet — clusters appear once 2+ analyzed emails share an IP, ASN, or domain.
+</div></div>
+{% endif %}
+
+{% for cluster in clusters %}
+<div class="card shadow-sm mb-3">
+  <div class="card-header d-flex justify-content-between align-items-center">
+    <span><i class="fa-solid fa-diagram-project me-2"></i>{{ cluster.cluster_type }}: <code>{{ cluster.key }}</code></span>
+    <span class="badge bg-dark">{{ cluster.case_count }} emails</span>
+  </div>
+  <div class="table-responsive">
+    <table class="table table-sm mb-0">
+      <thead><tr><th>Case Ref</th><th>Subject</th><th>Sender Domain</th><th>Score</th><th>Severity</th><th>Date</th></tr></thead>
+      <tbody>
+      {% for c in cluster.cases %}
+        <tr>
+          <td><a href="{{ url_for('case_detail', case_ref=c.case_ref) }}"><code>{{ c.case_ref }}</code></a></td>
+          <td class="text-truncate" style="max-width:220px;">{{ c.subject }}</td>
+          <td>{{ c.sender_domain }}</td>
+          <td>{{ c.combined_score }}</td>
+          <td><span class="badge severity-badge severity-{{ c.severity|lower }}">{{ c.severity }}</span></td>
+          <td class="small">{{ c.created_at.strftime('%d %b, %H:%M') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endfor %}
+{% endblock %}

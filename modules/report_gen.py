@@ -190,6 +190,30 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
         line = f"Hop {hop['hop_number']}: from {hop.get('from_host')} by {hop.get('by_host')} | IPs: {', '.join(hop.get('ips', [])) or 'none'} | {hop.get('timestamp','')}"
         elements.append(Paragraph(line, mono))
 
+    # --- Chain of custody ---
+    custody = case.get('custody_record')
+    if custody:
+        elements.append(Paragraph("Chain of Custody & Evidence Integrity", h2))
+        custody_rows = [
+            ['Evidence File', os.path.basename(custody.get('evidence_file', ''))],
+            ['Hash Algorithm', custody.get('hash_algorithm', 'SHA-256')],
+            ['SHA-256 (at ingestion)', custody.get('sha256_at_ingestion', '') or ''],
+            ['SHA-256 (at report time)', custody.get('sha256_at_report_time', '') or ''],
+            ['Integrity Verified', 'YES — unmodified' if custody.get('integrity_verified') else 'NO — mismatch detected'],
+            ['Custodian', custody.get('custodian', '')],
+            ['Record Generated', custody.get('record_generated_at', '')],
+        ]
+        ct = Table(custody_rows, colWidths=[55 * mm, 105 * mm])
+        ct.setStyle(TableStyle([
+            ('FONTNAME', (0, 0), (0, -1), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#e2e8f0')),
+            ('FONTSIZE', (0, 0), (-1, -1), 8),
+        ]))
+        elements.append(ct)
+        elements.append(Spacer(1, 6))
+        elements.append(Paragraph(custody.get('compliance_note', ''),
+                                   ParagraphStyle('Compliance', parent=normal, fontSize=8, textColor=colors.HexColor('#475569'))))
+
     # --- Analyst notes ---
     elements.append(Paragraph("Analyst Notes", h2))
     elements.append(Paragraph(analyst_notes or "—", normal))

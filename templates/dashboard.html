@@ -3,9 +3,14 @@
 {% block content %}
 <div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
   <h3 class="fw-bold mb-0">Analyst Case Dashboard</h3>
-  <a href="{{ url_for('export_csv') }}" class="btn btn-outline-dark btn-sm">
-    <i class="fa-solid fa-file-csv me-1"></i>Export All (CSV)
-  </a>
+  <div class="d-flex gap-2">
+    <form method="post" action="{{ url_for('retrain_model') }}" onsubmit="return confirm('Retrain the classifier using all analyst feedback collected so far?');">
+      <button class="btn btn-outline-primary btn-sm" type="submit"><i class="fa-solid fa-arrows-rotate me-1"></i>Retrain Model with Feedback</button>
+    </form>
+    <a href="{{ url_for('export_csv') }}" class="btn btn-outline-dark btn-sm">
+      <i class="fa-solid fa-file-csv me-1"></i>Export All (CSV)
+    </a>
+  </div>
 </div>
 
 <form class="row g-2 mb-3" method="get">

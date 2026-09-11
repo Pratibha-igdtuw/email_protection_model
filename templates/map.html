@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}Threat Map — ThreatForensicAI{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.css">
+
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <h3 class="fw-bold mb-0">Interactive Threat Map</h3>
+  <div class="d-flex gap-3 small text-muted">
+    <span><b>{{ summary.total_clusters }}</b> clusters detected</span>
+    <span><b>{{ summary.repeat_offender_ips }}</b> repeat-offender IPs</span>
+    <span><b>{{ summary.largest_campaign_size }}</b> largest campaign size</span>
+  </div>
+</div>
+
+<div class="card shadow-sm">
+  <div id="threatMap" style="height: 560px; border-radius: 12px;"></div>
+</div>
+
+{% if not markers %}
+<p class="text-muted mt-3">No geolocated cases yet — analyze an email to plot its origin here.</p>
+{% endif %}
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/leaflet/1.9.4/leaflet.min.js"></script>
+<script>
+const markers = {{ markers|tojson }};
+const severityColor = {'Critical': '#b91c1c', 'High': '#d97706', 'Medium': '#ca8a04', 'Low': '#16a34a'};
+
+const map = L.map('threatMap').setView([20, 0], 2);
+L.tileLayer('https://{s}.tile.openstreetmap.org/{z}/{x}/{y}.png', {
+  attribution: '&copy; OpenStreetMap contributors',
+  maxZoom: 18
+}).addTo(map);
+
+const bounds = [];
+markers.forEach(m => {
+  const color = severityColor[m.severity] || '#64748b';
+  const circle = L.circleMarker([m.lat, m.lon], {
+    radius: 8 + Math.min(m.score / 10, 8),
+    color: color,
+    fillColor: color,
+    fillOpacity: 0.65,
+    weight: 2
+  }).addTo(map);
+  circle.bindPopup(
+    `<b>${m.case_ref}</b><br>${m.subject}<br>` +
+    `<b>Severity:</b> ${m.severity} (${m.score})<br>` +
+    `<b>Domain:</b> ${m.domain || '—'}<br>` +
+    `<b>ISP:</b> ${m.isp || '—'}<br>` +
+    `<b>Country:</b> ${m.country || '—'}`
+  );
+  bounds.push([m.lat, m.lon]);
+});
+if (bounds.length) { map.fitBounds(bounds, {padding: [40, 40]}); }
+</script>
+{% endblock %}
