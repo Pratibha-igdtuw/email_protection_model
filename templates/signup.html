@@ -1,0 +1,67 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Create your account — ThreatForensicAI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%232c5ef6%27 d=%27M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5z%27/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="auth-shell">
+  <div class="auth-brand-panel">
+    <a class="brand" href="{{ url_for('landing') }}"><i class="fa-solid fa-shield-halved"></i>ThreatForensic<span style="color:#7fa0ff;">AI</span></a>
+    <div class="auth-brand-copy">
+      <h2>Every case starts with proof.</h2>
+      <p>Create a free workspace and run your first six-layer email analysis in under two minutes.</p>
+    </div>
+    <div class="auth-foot">Mailbox credentials are used once, never stored.</div>
+  </div>
+
+  <div class="auth-form-panel">
+    <div class="auth-form-inner">
+      <h1>Create your account</h1>
+      <p class="sub">Free to start — no credit card required.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category=='error' else category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="post" action="{{ url_for('signup') }}">
+        <label class="form-label">Full name</label>
+        <input type="text" name="full_name" class="form-control" required autofocus placeholder="Jordan Reyes" value="{{ form.full_name if form else '' }}">
+
+        <label class="form-label">Work email</label>
+        <input type="email" name="email" class="form-control" required placeholder="you@company.com" value="{{ form.email if form else '' }}">
+
+        <label class="form-label">Organization <span class="text-muted fw-normal">(optional)</span></label>
+        <input type="text" name="organization" class="form-control" placeholder="Company or team name" value="{{ form.organization if form else '' }}">
+
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control" required minlength="8" placeholder="At least 8 characters">
+
+        <label class="form-label">Confirm password</label>
+        <input type="password" name="confirm_password" class="form-control" required minlength="8" placeholder="Re-enter your password">
+
+        <div class="d-grid mt-4">
+          <button type="submit" class="btn btn-primary btn-lg">Create free account</button>
+        </div>
+      </form>
+
+      <div class="auth-switch">Already have an account? <a href="{{ url_for('login') }}">Log in</a></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>

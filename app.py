@@ -5,9 +5,11 @@ import uuid
 from datetime import datetime
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                    flash, send_file, jsonify, Response)
+                    flash, send_file, jsonify, Response, abort)
+from flask_login import (LoginManager, login_user, logout_user, login_required,
+                          current_user)
 
-from models import db, Case, BlacklistEntry, FeedbackLog
+from models import db, User, Case, BlacklistEntry, FeedbackLog
 from modules import parser as parser_mod
 from modules import auth_check
 from modules import geoip as geoip_mod
@@ -34,6 +36,18 @@ app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
 app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB
 
 db.init_app(app)
+
+login_manager = LoginManager()
+login_manager.login_view = 'login'
+login_manager.login_message = 'Please log in to continue.'
+login_manager.login_message_category = 'error'
+login_manager.init_app(app)
+
+
+@login_manager.user_loader
+def load_user(user_id):
+    return db.session.get(User, int(user_id))
+
 
 with app.app_context():
     db.create_all()
@@ -77,11 +91,85 @@ def run_pipeline(raw_email_bytes):
 
 
 @app.route('/')
-def index():
-    return render_template('index.html')
+def landing():
+    if current_user.is_authenticated:
+        return redirect(url_for('workspace'))
+    return render_template('landing.html')
+
+
+@app.route('/signup', methods=['GET', 'POST'])
+def signup():
+    if current_user.is_authenticated:
+        return redirect(url_for('workspace'))
+
+    form = {'full_name': '', 'email': '', 'organization': ''}
+    if request.method == 'POST':
+        form['full_name'] = request.form.get('full_name', '').strip()
+        form['email'] = request.form.get('email', '').strip().lower()
+        form['organization'] = request.form.get('organization', '').strip()
+        password = request.form.get('password', '')
+        confirm = request.form.get('confirm_password', '')
+
+        if not form['full_name'] or not form['email'] or not password:
+            flash('Name, work email and password are required.', 'error')
+        elif len(password) < 8:
+            flash('Password must be at least 8 characters.', 'error')
+        elif password != confirm:
+            flash('Passwords do not match.', 'error')
+        elif User.query.filter_by(email=form['email']).first():
+            flash('An account with that email already exists — log in instead.', 'error')
+        else:
+            user = User(full_name=form['full_name'], email=form['email'],
+                        organization=form['organization'] or None)
+            user.set_password(password)
+            db.session.add(user)
+            db.session.commit()
+            login_user(user)
+            flash(f"Welcome, {user.full_name.split()[0]} — your workspace is ready.", 'success')
+            return redirect(url_for('workspace'))
+
+    return render_template('signup.html', form=form)
+
+
+@app.route('/login', methods=['GET', 'POST'])
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('workspace'))
+
+    email = ''
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        remember = bool(request.form.get('remember'))
+        user = User.query.filter_by(email=email).first()
+
+        if not user or not user.check_password(password):
+            flash('Incorrect email or password.', 'error')
+        else:
+            login_user(user, remember=remember)
+            flash(f"Welcome back, {user.full_name.split()[0]}.", 'success')
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('workspace'))
+
+    return render_template('login.html', email=email)
+
+
+@app.route('/logout')
+@login_required
+def logout():
+    logout_user()
+    flash('You have been logged out.', 'success')
+    return redirect(url_for('landing'))
+
+
+@app.route('/app')
+@login_required
+def workspace():
+    return render_template('workspace.html')
 
 
 @app.route('/analyze', methods=['POST'])
+@login_required
 def analyze():
     raw_email_bytes = None
     if 'eml_file' in request.files and request.files['eml_file'].filename:
@@ -94,7 +182,7 @@ def analyze():
 
     if not raw_email_bytes:
         flash('Please paste raw email content or upload a .eml file.', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('workspace'))
 
     return _analyze_and_render(raw_email_bytes)
 
@@ -104,7 +192,7 @@ def _analyze_and_render(raw_email_bytes):
         result = run_pipeline(raw_email_bytes)
     except Exception as e:
         flash(f'Failed to parse/analyze email: {e}', 'error')
-        return redirect(url_for('index'))
+        return redirect(url_for('workspace'))
 
     case_ref = f"CASE-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
@@ -120,6 +208,7 @@ def _analyze_and_render(raw_email_bytes):
     geo = result['geo_result']
 
     case = Case(
+        owner_id=current_user.id,
         case_ref=case_ref,
         subject=parsed.get('subject'),
         sender_from=parsed.get('from_raw'),
@@ -155,9 +244,17 @@ def _analyze_and_render(raw_email_bytes):
     return render_template('result.html', case_ref=case_ref, result=result, case=case)
 
 
-@app.route('/report/<case_ref>')
-def download_report(case_ref):
+def _get_owned_case_or_404(case_ref):
     case = Case.query.filter_by(case_ref=case_ref).first_or_404()
+    if case.owner_id is not None and case.owner_id != current_user.id:
+        abort(404)
+    return case
+
+
+@app.route('/report/<case_ref>')
+@login_required
+def download_report(case_ref):
+    case = _get_owned_case_or_404(case_ref)
     if not case.report_path or not os.path.exists(case.report_path):
         flash('Report file not found.', 'error')
         return redirect(url_for('dashboard'))
@@ -165,11 +262,12 @@ def download_report(case_ref):
 
 
 @app.route('/dashboard')
+@login_required
 def dashboard():
     q = request.args.get('q', '').strip()
     severity_filter = request.args.get('severity', '').strip()
 
-    query = Case.query
+    query = Case.query.filter_by(owner_id=current_user.id)
     if q:
         like = f"%{q}%"
         query = query.filter(
@@ -184,14 +282,16 @@ def dashboard():
 
 
 @app.route('/case/<case_ref>')
+@login_required
 def case_detail(case_ref):
-    case = Case.query.filter_by(case_ref=case_ref).first_or_404()
+    case = _get_owned_case_or_404(case_ref)
     return render_template('case_detail.html', case=case)
 
 
 @app.route('/case/<case_ref>/notes', methods=['POST'])
+@login_required
 def update_notes(case_ref):
-    case = Case.query.filter_by(case_ref=case_ref).first_or_404()
+    case = _get_owned_case_or_404(case_ref)
     case.analyst_notes = request.form.get('notes', '')
     db.session.commit()
     flash('Analyst notes saved.', 'success')
@@ -199,8 +299,9 @@ def update_notes(case_ref):
 
 
 @app.route('/dashboard/export.csv')
+@login_required
 def export_csv():
-    cases = Case.query.order_by(Case.created_at.desc()).all()
+    cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
     si = io.StringIO()
     writer = csv.writer(si)
     writer.writerow(['Case Ref', 'Subject', 'From', 'Domain', 'IP', 'Score', 'Severity',
@@ -214,8 +315,9 @@ def export_csv():
 
 
 @app.route('/api/cases')
+@login_required
 def api_cases():
-    cases = Case.query.order_by(Case.created_at.desc()).all()
+    cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
     return jsonify([c.to_dict() for c in cases])
 
 
@@ -223,9 +325,11 @@ def api_cases():
 # USP 2 + 5: Geolocation clustering + Interactive Threat Map Dashboard
 # ---------------------------------------------------------------------------
 @app.route('/dashboard/map')
+@login_required
 def threat_map():
-    cases = Case.query.filter(Case.latitude.isnot(None), Case.longitude.isnot(None)).all()
-    summary = clustering.repeat_offender_summary(Case.query.all())
+    own_cases = Case.query.filter_by(owner_id=current_user.id)
+    cases = own_cases.filter(Case.latitude.isnot(None), Case.longitude.isnot(None)).all()
+    summary = clustering.repeat_offender_summary(own_cases.all())
     markers = [{
         'case_ref': c.case_ref,
         'lat': c.latitude,
@@ -241,8 +345,9 @@ def threat_map():
 
 
 @app.route('/dashboard/clusters')
+@login_required
 def threat_clusters():
-    all_cases = Case.query.order_by(Case.created_at.desc()).all()
+    all_cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
     clusters = clustering.build_clusters(all_cases)
     return render_template('clusters.html', clusters=clusters)
 
@@ -251,11 +356,13 @@ def threat_clusters():
 # USP 6: Lightweight Gmail / Outlook / Exchange (IMAP) integration
 # ---------------------------------------------------------------------------
 @app.route('/connect-mailbox', methods=['GET'])
+@login_required
 def connect_mailbox():
     return render_template('connect_mailbox.html')
 
 
 @app.route('/connect-mailbox/fetch', methods=['POST'])
+@login_required
 def connect_mailbox_fetch():
     provider = request.form.get('provider', 'gmail')
     username = request.form.get('username', '').strip()
@@ -289,6 +396,7 @@ def connect_mailbox_fetch():
 
 
 @app.route('/connect-mailbox/analyze/<batch_id>/<int:index>')
+@login_required
 def connect_mailbox_analyze(batch_id, index):
     cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
     path = os.path.join(cache_dir, f"{batch_id}_{index}.eml")
@@ -304,8 +412,9 @@ def connect_mailbox_analyze(batch_id, index):
 # USP 7: Self-improving model — analyst feedback loop
 # ---------------------------------------------------------------------------
 @app.route('/case/<case_ref>/feedback', methods=['POST'])
+@login_required
 def submit_feedback(case_ref):
-    case = Case.query.filter_by(case_ref=case_ref).first_or_404()
+    case = _get_owned_case_or_404(case_ref)
     verdict = request.form.get('verdict')
     if verdict not in ('Confirmed Phishing', 'False Positive'):
         flash('Invalid verdict.', 'error')
@@ -322,6 +431,7 @@ def submit_feedback(case_ref):
 
 
 @app.route('/retrain-model', methods=['POST'])
+@login_required
 def retrain_model():
     result = retrain_mod.retrain_with_feedback()
     if result['status'] == 'success':

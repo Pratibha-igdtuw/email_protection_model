@@ -1,0 +1,257 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>ThreatForensicAI — AI Email Threat Detection & Forensic Intelligence</title>
+<meta name="description" content="Upload one email and get a combined forensic verdict from content AI, SPF/DKIM/DMARC authentication, GeoIP, WHOIS, blacklist checks and infrastructure clustering — with a signed PDF report.">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%232c5ef6%27 d=%27M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5z%27/%3E%3C/svg%3E">
+</head>
+<body>
+
+<nav class="mkt-nav">
+  <div class="mkt-shell d-flex align-items-center justify-content-between py-3">
+    <a class="brand" href="{{ url_for('landing') }}"><i class="fa-solid fa-shield-halved"></i>ThreatForensic<span class="text-accent">AI</span></a>
+    <div class="d-none d-md-flex mkt-links">
+      <a href="#capabilities">Capabilities</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="#security">Security</a>
+    </div>
+    <div class="d-flex align-items-center gap-2">
+      <a href="{{ url_for('login') }}" class="btn btn-outline-dark btn-sm">Log in</a>
+      <a href="{{ url_for('signup') }}" class="btn btn-primary btn-sm">Get started free</a>
+    </div>
+  </div>
+</nav>
+
+<div class="mkt-shell pt-3">
+  {% with messages = get_flashed_messages(with_categories=true) %}
+    {% if messages %}
+      {% for category, message in messages %}
+        <div class="alert alert-{{ 'danger' if category=='error' else category }} alert-dismissible fade show" role="alert">
+          {{ message }}
+          <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+        </div>
+      {% endfor %}
+    {% endif %}
+  {% endwith %}
+</div>
+
+<!-- Hero -->
+<header class="hero">
+  <div class="mkt-shell">
+    <div class="row align-items-center g-5">
+      <div class="col-lg-6">
+        <h1>Know in seconds whether an email is trying to trick someone.</h1>
+        <p class="lead">Paste a raw email or connect a mailbox. Six independent checks — content AI, sender authentication, geolocation, domain age, blacklists and infrastructure clustering — combine into one forensic verdict, with a signed PDF report for the case file.</p>
+        <div class="hero-actions">
+          <a href="{{ url_for('signup') }}" class="btn btn-primary btn-lg">Start investigating free</a>
+          <a href="{{ url_for('login') }}" class="btn btn-outline-dark btn-lg">Log in</a>
+        </div>
+        <div class="hero-trust">
+          <span><i class="fa-solid fa-circle-check"></i>SPF / DKIM / DMARC authentication</span>
+          <span><i class="fa-solid fa-circle-check"></i>WHOIS domain-age check</span>
+          <span><i class="fa-solid fa-circle-check"></i>GeoIP + brand mismatch</span>
+          <span><i class="fa-solid fa-circle-check"></i>AI content classifier</span>
+        </div>
+      </div>
+      <div class="col-lg-6">
+        <div class="hero-visual-wrap">
+          <div class="case-mini-card">
+            <div class="cmc-top">
+              <span class="cmc-ref">CASE-20260911-7F3A2C</span>
+              <span class="severity-badge severity-critical">Critical</span>
+            </div>
+            <div class="cmc-score">
+              <div class="cmc-score-num">82</div>
+              <div>
+                <div class="cmc-score-title">Combined risk score</div>
+                <div class="cmc-score-label">6 checks combined</div>
+              </div>
+            </div>
+            <div class="cmc-row"><span>SPF / DKIM / DMARC</span><b>Fail</b></div>
+            <div class="cmc-row"><span>Domain age</span><b>6 days</b></div>
+            <div class="cmc-row"><span>Sender geography</span><b>Brand mismatch</b></div>
+            <div class="cmc-row"><span>Infrastructure</span><b>Matches 3 prior cases</b></div>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</header>
+
+<!-- Stats -->
+<div class="stats-bar">
+  <div class="mkt-shell">
+    <div class="row g-4">
+      <div class="col-6 col-md-3">
+        <div class="stat"><div class="num">6</div><div class="lbl">Independent detection layers</div></div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat"><div class="num">1</div><div class="lbl">Combined verdict per email</div></div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat"><div class="num">SHA-256</div><div class="lbl">Evidence hash, every case</div></div>
+      </div>
+      <div class="col-6 col-md-3">
+        <div class="stat"><div class="num">PDF</div><div class="lbl">Chain-of-custody report</div></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+<!-- Capabilities -->
+<section class="section" id="capabilities">
+  <div class="mkt-shell">
+    <div class="row g-5">
+      <div class="col-lg-4">
+        <div class="section-head mb-0">
+          <h2>Everything an analyst checks by hand, run automatically</h2>
+          <p>ThreatForensicAI runs the same checks a SOC analyst would — content, authentication, origin, reputation and infrastructure — and merges the results into one score, so triage takes seconds instead of a spreadsheet of tabs.</p>
+        </div>
+      </div>
+      <div class="col-lg-8">
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-robot"></i></div>
+          <div>
+            <h4>AI content classifier</h4>
+            <p>A trained model reads subject and body for phishing language, urgency cues and credential-harvesting patterns, and returns a probability score.</p>
+          </div>
+        </div>
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-key"></i></div>
+          <div>
+            <h4>SPF / DKIM / DMARC authentication</h4>
+            <p>Parses Authentication-Results and Received headers to verify the sender is who the domain says it is, and flags a missing or failing policy.</p>
+          </div>
+        </div>
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-earth-asia"></i></div>
+          <div>
+            <h4>GeoIP + brand mismatch</h4>
+            <p>Traces the originating IP to a country, ISP and ASN, then flags it when a "local bank" email actually originates from unrelated infrastructure abroad.</p>
+          </div>
+        </div>
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-magnifying-glass-location"></i></div>
+          <div>
+            <h4>WHOIS domain-age check</h4>
+            <p>Newly registered sender domains are a strong phishing signal — WHOIS lookups surface registrar and creation date automatically.</p>
+          </div>
+        </div>
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-ban"></i></div>
+          <div>
+            <h4>Blacklist & AbuseIPDB cross-check</h4>
+            <p>Checks the originating IP and domain against your own blacklist and AbuseIPDB reports before scoring the case.</p>
+          </div>
+        </div>
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-diagram-project"></i></div>
+          <div>
+            <h4>Repeat-offender clustering</h4>
+            <p>Groups cases that share an IP, ASN or sender domain, so a coordinated campaign surfaces even when each email looked unrelated on its own.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- How it works -->
+<section class="section" id="how-it-works" style="background:var(--surface-alt); border-top:1px solid var(--border); border-bottom:1px solid var(--border);">
+  <div class="mkt-shell">
+    <div class="section-head">
+      <h2>Three steps from inbox to case file</h2>
+      <p>No infrastructure change required — paste an email, upload a file, or connect a mailbox over IMAP.</p>
+    </div>
+    <div class="steps-row flex-column flex-md-row">
+      <div class="step">
+        <span class="step-num">01</span>
+        <h4>Bring in the email</h4>
+        <p>Paste raw source, upload a .eml file, or connect Gmail / Outlook / Exchange to pull recent messages.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">02</span>
+        <h4>Pipeline runs every check</h4>
+        <p>Content AI, authentication, GeoIP, WHOIS, blacklist and clustering checks run together and merge into one score.</p>
+      </div>
+      <div class="step">
+        <span class="step-num">03</span>
+        <h4>Get a verdict you can act on</h4>
+        <p>Severity, full breakdown and a chain-of-custody PDF land in your case dashboard, ready to escalate or file.</p>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Security -->
+<section class="section" id="security">
+  <div class="mkt-shell">
+    <div class="row g-5 align-items-start">
+      <div class="col-lg-5">
+        <div class="section-head mb-0">
+          <h2>Built for the case file, not just the inbox</h2>
+          <p>Every analyzed email gets a SHA-256 evidence hash at ingestion and a signed chain-of-custody record, so a finding holds up when it needs to.</p>
+        </div>
+      </div>
+      <div class="col-lg-7">
+        <div class="capability-row" style="border-top:none; padding-top:0;">
+          <div class="cap-icon"><i class="fa-solid fa-fingerprint"></i></div>
+          <div>
+            <h4>Per-case evidence hashing</h4>
+            <p>The raw message is hashed the moment it's ingested, before any analysis runs, so the original evidence is provably unaltered.</p>
+          </div>
+        </div>
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-user-lock"></i></div>
+          <div>
+            <h4>Cases are yours alone</h4>
+            <p>Every account gets its own case dashboard, threat map and cluster view — nothing is shared across accounts.</p>
+          </div>
+        </div>
+        <div class="capability-row">
+          <div class="cap-icon"><i class="fa-solid fa-arrows-rotate"></i></div>
+          <div>
+            <h4>Mailbox credentials aren't stored</h4>
+            <p>Connecting a mailbox uses an app password only to fetch messages for that session — it's never written to disk.</p>
+          </div>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- CTA -->
+<section class="section pt-0">
+  <div class="mkt-shell">
+    <div class="cta-band">
+      <div>
+        <h2>Start investigating your first email</h2>
+        <p>Create a free account and run a full six-layer analysis in the next two minutes.</p>
+      </div>
+      <a href="{{ url_for('signup') }}" class="btn btn-lg btn-light-cta">Create free account</a>
+    </div>
+  </div>
+</section>
+
+<footer class="mkt-footer">
+  <div class="mkt-shell d-flex flex-wrap justify-content-between align-items-center gap-3">
+    <span class="brand"><i class="fa-solid fa-shield-halved text-accent me-2"></i>ThreatForensicAI</span>
+    <div class="d-flex gap-4 mkt-footer-links">
+      <a href="#capabilities">Capabilities</a>
+      <a href="#how-it-works">How it works</a>
+      <a href="{{ url_for('login') }}">Log in</a>
+      <a href="{{ url_for('signup') }}">Sign up</a>
+    </div>
+    <span>&copy; {{ 2026 }} ThreatForensicAI. All rights reserved.</span>
+  </div>
+</footer>
+
+</body>
+</html>

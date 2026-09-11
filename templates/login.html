@@ -1,0 +1,63 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Log in — ThreatForensicAI</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
+<link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%232c5ef6%27 d=%27M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5z%27/%3E%3C/svg%3E">
+</head>
+<body>
+<div class="auth-shell">
+  <div class="auth-brand-panel">
+    <a class="brand" href="{{ url_for('landing') }}"><i class="fa-solid fa-shield-halved"></i>ThreatForensic<span style="color:#7fa0ff;">AI</span></a>
+    <div class="auth-brand-copy">
+      <h2>Welcome back to the case file.</h2>
+      <p>Log in to pick up where you left off — your dashboard, threat map, and every case you've analyzed.</p>
+    </div>
+    <div class="auth-foot">Every case gets its own SHA-256 evidence hash.</div>
+  </div>
+
+  <div class="auth-form-panel">
+    <div class="auth-form-inner">
+      <h1>Log in</h1>
+      <p class="sub">Enter your details to access your workspace.</p>
+
+      {% with messages = get_flashed_messages(with_categories=true) %}
+        {% if messages %}
+          {% for category, message in messages %}
+            <div class="alert alert-{{ 'danger' if category=='error' else category }} alert-dismissible fade show" role="alert">
+              {{ message }}
+              <button type="button" class="btn-close" data-bs-dismiss="alert"></button>
+            </div>
+          {% endfor %}
+        {% endif %}
+      {% endwith %}
+
+      <form method="post" action="{{ url_for('login') }}">
+        <label class="form-label">Email</label>
+        <input type="email" name="email" class="form-control" required autofocus placeholder="you@company.com" value="{{ email or '' }}">
+
+        <label class="form-label">Password</label>
+        <input type="password" name="password" class="form-control" required placeholder="••••••••">
+
+        <div class="form-check mt-3">
+          <input class="form-check-input" type="checkbox" name="remember" id="remember" checked>
+          <label class="form-check-label small text-muted" for="remember">Keep me logged in</label>
+        </div>
+
+        <div class="d-grid mt-4">
+          <button type="submit" class="btn btn-primary btn-lg">Log in</button>
+        </div>
+      </form>
+
+      <div class="auth-switch">Don't have an account? <a href="{{ url_for('signup') }}">Create one free</a></div>
+    </div>
+  </div>
+</div>
+</body>
+</html>
