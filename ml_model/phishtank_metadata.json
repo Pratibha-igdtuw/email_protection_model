@@ -1,0 +1,5 @@
+{
+  "source": "PhishTank (https://phishtank.org) verified phishing feed",
+  "last_refreshed_at": "2026-09-10T02:11:50+00:00",
+  "note": "last_refreshed_at is set automatically by ml_model/refresh_phishtank.py each time it runs. This file is bundled as a point-in-time snapshot and will not update itself -- schedule the refresh script (see README) to keep it current."
+}

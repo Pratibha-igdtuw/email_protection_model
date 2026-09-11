@@ -1,19 +1,22 @@
 import os
 import io
 import csv
-import json
-import time
 import uuid
+import logging
 import secrets
 from datetime import datetime
 
 from flask import (Flask, render_template, request, redirect, url_for,
-                   flash, send_file, jsonify, Response, session, abort)
-from werkzeug.security import generate_password_hash, check_password_hash
+                    flash, send_file, jsonify, Response, abort, session)
 from flask_login import (LoginManager, login_user, logout_user, login_required,
-                         current_user)
+                          current_user)
+from flask_wtf import CSRFProtect
+from flask_migrate import Migrate
+from flask_limiter import Limiter
+from flask_limiter.util import get_remote_address
 
-from models import db, User, Case, BlacklistEntry, FeedbackLog
+from config import get_config
+from models import db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToken
 from modules import parser as parser_mod
 from modules import auth_check
 from modules import geoip as geoip_mod
@@ -24,8 +27,10 @@ from modules import risk_score
 from modules import report_gen
 from modules import clustering
 from modules import mailbox_connector
+from modules import oauth_gmail
 from modules import chain_of_custody
 from modules import retrain as retrain_mod
+from modules import blacklist as blacklist_freshness_mod
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
@@ -33,13 +38,24 @@ REPORTS_DIR = os.path.join(BASE_DIR, 'case_reports')
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
 
+logging.basicConfig(level=logging.INFO)
+logger = logging.getLogger('email_threat_platform')
+
 app = Flask(__name__)
-app.config['SECRET_KEY'] = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
-app.config['SQLALCHEMY_DATABASE_URI'] = f"sqlite:///{os.path.join(INSTANCE_DIR, 'threat_platform.db')}"
-app.config['SQLALCHEMY_TRACK_MODIFICATIONS'] = False
-app.config['MAX_CONTENT_LENGTH'] = 10 * 1024 * 1024  # 10 MB
+app.config.from_object(get_config())
+
+csrf = CSRFProtect(app)
 
 db.init_app(app)
+migrate = Migrate(app, db)  # `flask db migrate` / `flask db upgrade` -- see README
+
+limiter = Limiter(
+    get_remote_address,
+    app=app,
+    storage_uri=app.config.get('RATELIMIT_STORAGE_URI', 'memory://'),
+    enabled=app.config.get('RATELIMIT_ENABLED', True),
+    default_limits=[],  # only the routes below are limited; everything else is unlimited
+)
 
 login_manager = LoginManager()
 login_manager.login_view = 'login'
@@ -53,25 +69,19 @@ def load_user(user_id):
     return db.session.get(User, int(user_id))
 
 
-with app.app_context():
-    db.create_all()
+if app.config.get('AUTO_CREATE_TABLES'):
+    # Dev/test convenience only. Production deployments use Flask-Migrate:
+    #   flask db upgrade
+    # See README "Database migrations".
+    with app.app_context():
+        db.create_all()
 
 # ---------------------------------------------------------------------------
-# Analyst authentication (single shared analyst account — this is a hackathon
-# prototype, not multi-tenant, but every route below touches forensic
-# evidence, so it should never be reachable without a login).
-# Set ANALYST_USERNAME / ANALYST_PASSWORD env vars in production. Falls back
-# to a dev default so the app still runs out-of-the-box for local testing.
+# Authentication / CSRF protection
 # ---------------------------------------------------------------------------
-ANALYST_USERNAME = os.environ.get('ANALYST_USERNAME', 'analyst')
-ANALYST_PASSWORD_HASH = os.environ.get(
-    'ANALYST_PASSWORD_HASH',
-    generate_password_hash(os.environ.get('ANALYST_PASSWORD', 'changeme123'))
-)
-
-PUBLIC_ENDPOINTS = {'login', 'static'}
 
 
+<<<<<<< HEAD
 @app.before_request
 def _require_login_and_csrf():
     # Every session gets a CSRF token, including anonymous visitors on the
@@ -177,6 +187,16 @@ def logout():
     session.clear()
     return redirect(url_for('login'))
 
+# Check whether the PhishTank snapshot is stale.
+_freshness = blacklist_freshness_mod.get_phishtank_freshness()
+if _freshness['stale']:
+    logger.warning(
+        "PhishTank domain snapshot is stale (last refreshed: %s, age: %s days). "
+        "Run `python ml_model/refresh_phishtank.py` to update it -- see README "
+        "'Keeping PhishTank data fresh'.",
+        _freshness['last_refreshed_at'], _freshness['age_days'],
+    )
+
 
 def run_pipeline(raw_email_bytes):
     """Runs the full unified analysis pipeline on raw email content."""
@@ -217,44 +237,6 @@ def run_pipeline(raw_email_bytes):
     }
 
 
-def _pipeline_cache_path(case_ref):
-    return os.path.join(REPORTS_DIR, f"{case_ref}_pipeline.json")
-
-
-def _save_pipeline_result(case_ref, result):
-    """Caches the full analysis result (geo/whois/auth/ML lookups) at
-    ingestion time. Re-running run_pipeline() later to regenerate a report
-    would re-hit live GeoIP/WHOIS/AbuseIPDB APIs and could silently return
-    different facts than what was actually evidenced at ingestion — bad for
-    a forensic report. Reports are always rebuilt from this frozen snapshot."""
-    with open(_pipeline_cache_path(case_ref), 'w', encoding='utf-8') as f:
-        json.dump(result, f, default=str)
-
-
-def _load_pipeline_result(case_ref):
-    path = _pipeline_cache_path(case_ref)
-    if not os.path.exists(path):
-        return None
-    with open(path, encoding='utf-8') as f:
-        return json.load(f)
-
-
-def _regenerate_report(case):
-    """Rebuilds the case's PDF from the frozen ingestion-time analysis plus
-    whatever is currently in the DB (analyst notes, verdict) — called after
-    notes/feedback change so the downloadable report actually reflects them."""
-    result = _load_pipeline_result(case.case_ref)
-    if result is None:
-        return False
-    custody_record = chain_of_custody.build_custody_record(
-        case.case_ref, case.raw_email_path, case.evidence_sha256)
-    report_path = case.report_path or os.path.join(REPORTS_DIR, f"{case.case_ref}.pdf")
-    pipeline_case = {**result, 'case_id': case.case_ref, 'custody_record': custody_record}
-    report_gen.generate_pdf_report(pipeline_case, report_path, analyst_notes=case.analyst_notes or "")
-    case.report_path = report_path
-    return True
-
-
 @app.route('/')
 def landing():
     if current_user.is_authenticated:
@@ -263,6 +245,7 @@ def landing():
 
 
 @app.route('/signup', methods=['GET', 'POST'])
+@limiter.limit("10 per hour")
 def signup():
     if current_user.is_authenticated:
         return redirect(url_for('workspace'))
@@ -298,6 +281,31 @@ def signup():
 
 
 
+@app.route('/login', methods=['GET', 'POST'])
+@limiter.limit("15 per minute")
+def login():
+    if current_user.is_authenticated:
+        return redirect(url_for('workspace'))
+
+    email = ''
+    if request.method == 'POST':
+        email = request.form.get('email', '').strip().lower()
+        password = request.form.get('password', '')
+        remember = bool(request.form.get('remember'))
+        user = User.query.filter_by(email=email).first()
+
+        if not user or not user.check_password(password):
+            flash('Incorrect email or password.', 'error')
+        else:
+            login_user(user, remember=remember)
+            flash(f"Welcome back, {user.full_name.split()[0]}.", 'success')
+            next_page = request.args.get('next')
+            return redirect(next_page or url_for('workspace'))
+
+    return render_template('login.html', email=email)
+
+
+
 @app.route('/logout')
 @login_required
 def logout():
@@ -314,6 +322,7 @@ def workspace():
 
 @app.route('/analyze', methods=['POST'])
 @login_required
+@limiter.limit("30 per hour")
 def analyze():
     raw_email_bytes = None
     if 'eml_file' in request.files and request.files['eml_file'].filename:
@@ -377,11 +386,6 @@ def _analyze_and_render(raw_email_bytes):
     db.session.add(case)
     db.session.commit()
 
-    # Freeze the analysis result so later report regenerations (after
-    # analyst notes/feedback are added) reflect ingestion-time evidence,
-    # not a fresh re-query of live GeoIP/WHOIS/blacklist APIs.
-    _save_pipeline_result(case_ref, result)
-
     # Generate PDF report (includes chain-of-custody block)
     custody_record = chain_of_custody.build_custody_record(case_ref, raw_path, evidence_hash)
     report_path = os.path.join(REPORTS_DIR, f"{case_ref}.pdf")
@@ -443,12 +447,7 @@ def update_notes(case_ref):
     case = _get_owned_case_or_404(case_ref)
     case.analyst_notes = request.form.get('notes', '')
     db.session.commit()
-    if _regenerate_report(case):
-        db.session.commit()
-        flash('Analyst notes saved and forensic report updated.', 'success')
-    else:
-        flash('Analyst notes saved, but the report could not be regenerated '
-              '(original analysis snapshot missing).', 'error')
+    flash('Analyst notes saved.', 'success')
     return redirect(url_for('case_detail', case_ref=case_ref))
 
 
@@ -512,11 +511,31 @@ def threat_clusters():
 @app.route('/connect-mailbox', methods=['GET'])
 @login_required
 def connect_mailbox():
-    return render_template('connect_mailbox.html')
+    return render_template('connect_mailbox.html', gmail_oauth_available=oauth_gmail.is_configured())
+
+
+def _cache_emails_and_render_picker(raw_emails):
+    """Shared by both the IMAP app-password path and the Gmail OAuth path:
+    caches fetched raw messages server-side and renders the picker UI."""
+    previews = []
+    for idx, raw in enumerate(raw_emails):
+        p = mailbox_connector.quick_preview(raw)
+        p['index'] = idx
+        previews.append(p)
+
+    cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
+    os.makedirs(cache_dir, exist_ok=True)
+    batch_id = uuid.uuid4().hex[:10]
+    for idx, raw in enumerate(raw_emails):
+        with open(os.path.join(cache_dir, f"{batch_id}_{idx}.eml"), 'wb') as f:
+            f.write(raw)
+
+    return render_template('mailbox_picker.html', previews=previews, batch_id=batch_id, count=len(raw_emails))
 
 
 @app.route('/connect-mailbox/fetch', methods=['POST'])
 @login_required
+@limiter.limit("10 per hour")
 def connect_mailbox_fetch():
     provider = request.form.get('provider', 'gmail')
     username = request.form.get('username', '').strip()
@@ -532,39 +551,108 @@ def connect_mailbox_fetch():
         flash(f"Mailbox connection failed: {result['message']}", 'error')
         return redirect(url_for('connect_mailbox'))
 
-    previews = []
-    for idx, raw in enumerate(result['emails']):
-        p = mailbox_connector.quick_preview(raw)
-        p['index'] = idx
-        previews.append(p)
-
-    # Stash raw bytes in a short-lived server-side cache file per session-less demo use
-    cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
-    os.makedirs(cache_dir, exist_ok=True)
-    _sweep_stale_mailbox_cache(cache_dir)
-    batch_id = uuid.uuid4().hex[:10]
-    for idx, raw in enumerate(result['emails']):
-        with open(os.path.join(cache_dir, f"{batch_id}_{idx}.eml"), 'wb') as f:
-            f.write(raw)
-
-    return render_template('mailbox_picker.html', previews=previews, batch_id=batch_id, count=result['count'])
+    return _cache_emails_and_render_picker(result['emails'])
 
 
-def _sweep_stale_mailbox_cache(cache_dir, max_age_seconds=3600):
-    """Previewed-but-never-analyzed mailbox fetches (the analyst backed out
-    of the picker screen) would otherwise sit on disk forever holding real
-    inbox content. Anything older than an hour gets swept on the next fetch."""
-    now = time.time()
+# ---------------------------------------------------------------------------
+# Gmail OAuth2 connector (upgrade over the IMAP app-password path above,
+# for accounts that can use it -- see modules/oauth_gmail.py)
+# ---------------------------------------------------------------------------
+@app.route('/connect-mailbox/oauth/start')
+@login_required
+def connect_mailbox_oauth_start():
+    if not oauth_gmail.is_configured():
+        flash('Gmail OAuth is not configured on this server. Ask your administrator to set '
+              'GOOGLE_OAUTH_CLIENT_ID / GOOGLE_OAUTH_CLIENT_SECRET / GOOGLE_OAUTH_REDIRECT_URI, '
+              'or use the app-password option below.', 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    state = uuid.uuid4().hex
+    session['gmail_oauth_state'] = state
+    return redirect(oauth_gmail.build_auth_url(state))
+
+
+@app.route('/connect-mailbox/oauth/callback')
+@login_required
+@limiter.limit("10 per hour")
+def connect_mailbox_oauth_callback():
+    error = request.args.get('error')
+    if error:
+        flash(f'Google declined the connection request: {error}', 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    state = request.args.get('state')
+    if not state or state != session.pop('gmail_oauth_state', None):
+        flash('OAuth state mismatch -- please try connecting again.', 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    code = request.args.get('code')
+    if not code:
+        flash('No authorization code returned by Google.', 'error')
+        return redirect(url_for('connect_mailbox'))
+
     try:
-        for fname in os.listdir(cache_dir):
-            fpath = os.path.join(cache_dir, fname)
-            try:
-                if os.path.isfile(fpath) and (now - os.path.getmtime(fpath)) > max_age_seconds:
-                    os.remove(fpath)
-            except OSError:
-                continue
-    except FileNotFoundError:
-        pass
+        token_data = oauth_gmail.exchange_code_for_token(code)
+    except Exception as e:
+        flash(f'Failed to complete Gmail authorization: {e}', 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    token_row = MailboxOAuthToken.query.filter_by(user_id=current_user.id, provider='gmail').first()
+    if token_row is None:
+        token_row = MailboxOAuthToken(user_id=current_user.id, provider='gmail')
+        db.session.add(token_row)
+
+    token_row.access_token = token_data['access_token']
+    # Google only returns a refresh_token on first consent; keep the existing
+    # one if this is a re-connect without a fresh refresh_token.
+    if token_data.get('refresh_token'):
+        token_row.refresh_token = token_data['refresh_token']
+    token_row.token_expiry = token_data.get('token_expiry')
+    token_row.scope = token_data.get('scope')
+    db.session.commit()
+
+    try:
+        mailbox_email, _ = oauth_gmail.get_mailbox_email(token_row)
+        token_row.mailbox_email = mailbox_email
+        db.session.commit()
+    except Exception:
+        pass  # cosmetic only -- fetch below will surface any real auth problem
+
+    flash(f"Connected Gmail account{' (' + token_row.mailbox_email + ')' if token_row.mailbox_email else ''}.",
+          'success')
+    return redirect(url_for('connect_mailbox_oauth_fetch'))
+
+
+@app.route('/connect-mailbox/oauth/fetch')
+@login_required
+@limiter.limit("10 per hour")
+def connect_mailbox_oauth_fetch():
+    token_row = MailboxOAuthToken.query.filter_by(user_id=current_user.id, provider='gmail').first()
+    if token_row is None:
+        flash('No connected Gmail account found -- connect one first.', 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    limit = int(request.args.get('limit', 10))
+    result = oauth_gmail.fetch_recent_emails(token_row, limit=limit)
+    if result.get('refreshed_token'):
+        token_row.access_token = result['refreshed_token']['access_token']
+        token_row.token_expiry = result['refreshed_token']['token_expiry']
+        db.session.commit()
+
+    if result['status'] != 'success':
+        flash(f"Gmail fetch failed: {result['message']}", 'error')
+        return redirect(url_for('connect_mailbox'))
+
+    return _cache_emails_and_render_picker(result['emails'])
+
+
+@app.route('/connect-mailbox/oauth/disconnect', methods=['POST'])
+@login_required
+def connect_mailbox_oauth_disconnect():
+    MailboxOAuthToken.query.filter_by(user_id=current_user.id, provider='gmail').delete()
+    db.session.commit()
+    flash('Disconnected Gmail account.', 'success')
+    return redirect(url_for('connect_mailbox'))
 
 
 @app.route('/connect-mailbox/analyze/<batch_id>/<int:index>')
@@ -577,14 +665,6 @@ def connect_mailbox_analyze(batch_id, index):
         return redirect(url_for('connect_mailbox'))
     with open(path, 'rb') as f:
         raw_email_bytes = f.read()
-    # The analyzed email is now safely archived as case evidence (see
-    # _analyze_and_render's evidence_hash + raw_path); the transient
-    # mailbox-fetch cache copy of someone's real inbox content should not
-    # also sit around indefinitely, so remove it once read.
-    try:
-        os.remove(path)
-    except OSError:
-        pass
     return _analyze_and_render(raw_email_bytes)
 
 
@@ -612,6 +692,7 @@ def submit_feedback(case_ref):
 
 @app.route('/retrain-model', methods=['POST'])
 @login_required
+@limiter.limit("5 per hour")
 def retrain_model():
     result = retrain_mod.retrain_with_feedback()
     if result['status'] == 'success':
@@ -626,10 +707,7 @@ def retrain_model():
 
 
 if __name__ == '__main__':
-    # Debug mode (Werkzeug interactive debugger) must never be on when the
-    # app is reachable from outside localhost — the debugger allows remote
-    # code execution. Default is safe; opt into debug explicitly for local
-    # dev only, and it forces host back to localhost regardless of env.
-    debug_mode = os.environ.get('FLASK_DEBUG', '0') == '1'
-    host = '127.0.0.1' if debug_mode else os.environ.get('HOST', '0.0.0.0')
-    app.run(debug=debug_mode, host=host, port=int(os.environ.get('PORT', 5001)))
+    # Local/dev use only. For production, run behind a real WSGI server:
+    #   gunicorn -c gunicorn.conf.py wsgi:application
+    # See README "Deploying to production".
+    app.run(debug=app.config.get('DEBUG', False), host='0.0.0.0', port=5001)

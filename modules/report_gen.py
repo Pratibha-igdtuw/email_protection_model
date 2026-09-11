@@ -177,15 +177,38 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
                                    f"{_esc(str(whois_r.get('message', '')))}", normal))
 
     # --- Blacklist ---
-    bl = case.get('blacklist_hits', [])
+    bl = case.get('blacklist_hits', case.get('local_blacklist_hits', []))
+    local_hits = bl
+    phishtank_r = case.get('phishtank_result', {})
+    abuseipdb_r = case.get('abuseipdb_result', {})
     elements.append(Paragraph("Blacklist / Reputation Check", h2))
     if bl:
         for hit in bl:
             elements.append(Paragraph(
-                f"• {_esc(str(hit.get('indicator')))} ({_esc(str(hit.get('type')))}) — {_esc(str(hit.get('reason')))}",
-                normal))
-    else:
-        elements.append(Paragraph("No local blacklist matches.", normal))
+                f"• Local blacklist: {_esc(str(hit.get('indicator')))} "
+                f"({_esc(str(hit.get('type')))}) — {_esc(str(hit.get('reason')))}", normal))
+    if phishtank_r.get('hits'):
+        for hit in phishtank_r['hits']:
+            elements.append(Paragraph(
+                f"• PhishTank-verified: {hit.get('domain')} (impersonating {hit.get('target')}, "
+                f"verified {hit.get('verified_time')})", normal))
+    if abuseipdb_r.get('status') == 'success':
+        elements.append(Paragraph(
+            f"• AbuseIPDB confidence score: {abuseipdb_r.get('abuse_confidence_score')}% "
+            f"({abuseipdb_r.get('total_reports')} reports)", normal))
+    if not local_hits and not phishtank_r.get('hits') and abuseipdb_r.get('status') != 'success':
+        elements.append(Paragraph("No blacklist, PhishTank, or AbuseIPDB matches.", normal))
+    if phishtank_r.get('dataset_size'):
+        elements.append(Paragraph(
+            f"(Checked sender domain and message URLs against a snapshot of "
+            f"{phishtank_r['dataset_size']:,} PhishTank-verified phishing domains.)",
+            ParagraphStyle('Small', parent=normal, fontSize=7.5, textColor=colors.HexColor('#94a3b8'))))
+    if phishtank_r.get('stale'):
+        age_note = f" ({phishtank_r['age_days']} days old)" if phishtank_r.get('age_days') is not None else ""
+        elements.append(Paragraph(
+            f"⚠ PhishTank snapshot is stale{age_note}. A clean result here does not rule out a "
+            f"domain listed after the snapshot was taken. Refresh via ml_model/refresh_phishtank.py.",
+            ParagraphStyle('StaleWarn', parent=normal, fontSize=8, textColor=colors.HexColor('#b45309'))))
 
     # --- Header trace ---
     elements.append(Paragraph("Full Header Relay Trace", h2))
