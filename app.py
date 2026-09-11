@@ -96,34 +96,6 @@ def _inject_csrf_token():
     return {'csrf_token': lambda: session.get('csrf_token', '')}
 
 
-@app.route('/login', methods=['GET', 'POST'])
-def login():
-    if request.method == 'POST':
-        submitted = request.form.get('csrf_token', '')
-        if not submitted or not secrets.compare_digest(submitted, session.get('csrf_token', '')):
-            flash('Session expired — please try logging in again.', 'error')
-            return redirect(url_for('login'))
-
-        username = request.form.get('username', '').strip()
-        password = request.form.get('password', '')
-        if username == ANALYST_USERNAME and check_password_hash(ANALYST_PASSWORD_HASH, password):
-            session['authenticated'] = True
-            session['analyst_username'] = username
-            flash('Logged in.', 'success')
-            next_url = request.args.get('next') or url_for('index')
-            return redirect(next_url)
-        flash('Invalid username or password.', 'error')
-        return redirect(url_for('login'))
-
-    return render_template('login.html')
-
-
-@app.route('/logout')
-def logout():
-    session.clear()
-    return redirect(url_for('login'))
-
-
 def run_pipeline(raw_email_bytes):
     """Runs the full unified analysis pipeline on raw email content."""
     parsed = parser_mod.parse_email(raw_email_bytes)
