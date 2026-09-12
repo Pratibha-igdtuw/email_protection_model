@@ -164,6 +164,54 @@ def explain_classification(text, top_n=6):
         return {'toward_phishing': [], 'toward_legitimate': []}
 
 
+def explain_saved_case(case):
+    """
+    Reconstructs the same 'why was this flagged' explanation shown right
+    after analysis (ml_explanation + red_flags), but from a Case row that
+    was saved earlier -- for the case-detail page, which previously showed
+    a bare score with no way to see why.
+
+    Nothing extra is stored on the Case for this: body_text is already
+    persisted (for feedback-loop retraining), the classifier is
+    deterministic, and sender_from/sender_domain are already columns --
+    so the explanation is recomputed on read rather than duplicating data.
+    Degrades to empty lists (not an error) if body_text is missing, e.g.
+    for older cases saved before body_text was added.
+    """
+    text = case.body_text or ''
+    ml_explanation = explain_classification(text)
+
+    display_name = None
+    if case.sender_from:
+        m = re.match(r'^\s*"?([^"<]*)"?\s*<', case.sender_from)
+        if m:
+            display_name = m.group(1).strip() or None
+
+    urls = []
+    try:
+        from modules.parser import extract_urls
+        urls = extract_urls(text)
+    except Exception:
+        pass
+
+    red_flags = []
+    urgency_hits = detect_urgency_language(text)
+    dn_mismatch = detect_display_name_mismatch(display_name, case.sender_domain)
+    lookalike = detect_lookalike_domain(case.sender_domain)
+    suspicious_links = detect_suspicious_links(urls)
+
+    if urgency_hits:
+        red_flags.append(f"Urgency/social-engineering language detected: {', '.join(urgency_hits[:5])}")
+    if dn_mismatch:
+        red_flags.append(dn_mismatch)
+    if lookalike:
+        red_flags.append(lookalike)
+    if suspicious_links:
+        red_flags.extend(suspicious_links)
+
+    return {'ml_explanation': ml_explanation, 'red_flags': red_flags}
+
+
 def classify_email(parsed_email, urls):
     """
     Returns:

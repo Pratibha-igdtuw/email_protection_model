@@ -58,6 +58,43 @@
 
   <div class="col-lg-6">
     <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-robot me-2"></i>Why This Was Flagged</div>
+      <div class="card-body">
+        {% set expl = explanation.ml_explanation %}
+        {% if expl and (expl.toward_phishing or expl.toward_legitimate) %}
+        <p class="small text-muted mb-1">Strongest terms behind the {{ case.ml_probability }}% ML phishing probability:</p>
+        {% if expl.toward_phishing %}
+        <p class="small mb-1" style="color:#b91c1c;">Toward phishing:</p>
+        <div class="mb-2 d-flex flex-wrap gap-1">
+          {% for c in expl.toward_phishing %}
+          <span class="badge rounded-pill" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ c.token }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if expl.toward_legitimate %}
+        <p class="small mb-1" style="color:#16a34a;">Toward legitimate:</p>
+        <div class="mb-3 d-flex flex-wrap gap-1">
+          {% for c in expl.toward_legitimate %}
+          <span class="badge rounded-pill" style="background:#dcfce7;color:#16a34a;font-weight:500;">{{ c.token }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="small text-muted mb-3">No token-level explanation available for this case (e.g. saved before body text was stored).</p>
+        {% endif %}
+
+        {% if explanation.red_flags %}
+        <p class="small text-muted mb-1">NLP / heuristic red flags:</p>
+        <ul class="mb-0 small">{% for f in explanation.red_flags %}<li>{{ f }}</li>{% endfor %}</ul>
+        {% else %}
+        <p class="text-success mb-0 small"><i class="fa-solid fa-check me-1"></i>No significant NLP red flags detected.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
       <div class="card-header">Analyst Notes</div>
       <div class="card-body">
         <form method="post" action="{{ url_for('update_notes', case_ref=case.case_ref) }}">

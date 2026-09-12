@@ -8,6 +8,14 @@ import logging
 import secrets
 from datetime import datetime
 
+# Load variables from a local .env file (if present) into the real
+# environment BEFORE config.py or any WEB3_* lookups run. Without this,
+# a .env file just sits there unused -- os.environ.get() only ever sees
+# real OS environment variables, never .env file contents on its own.
+# Safe to keep even in production: if no .env file exists, this is a no-op.
+from dotenv import load_dotenv
+load_dotenv()
+
 from flask import (Flask, render_template, request, redirect, url_for,
                     flash, send_file, jsonify, Response, abort, session)
 from flask_login import (LoginManager, login_user, logout_user, login_required,
@@ -444,7 +452,8 @@ def dashboard():
 @login_required
 def case_detail(case_ref):
     case = _get_owned_case_or_404(case_ref)
-    return render_template('case_detail.html', case=case)
+    explanation = classifier.explain_saved_case(case)
+    return render_template('case_detail.html', case=case, explanation=explanation)
 
 
 @app.route('/case/<case_ref>/notes', methods=['POST'])
