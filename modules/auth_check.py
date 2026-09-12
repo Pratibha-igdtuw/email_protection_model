@@ -15,7 +15,8 @@ except ImportError:
 
 
 def _parse_auth_results(auth_results_header):
-    """Extract spf=, dkim=, dmarc= results from an Authentication-Results header."""
+    """Extract spf=, dkim=, dmarc= results from an Authentication-Results
+    (or ARC-Authentication-Results) header."""
     result = {'spf': None, 'dkim': None, 'dmarc': None}
     if not auth_results_header:
         return result
@@ -25,6 +26,16 @@ def _parse_auth_results(auth_results_header):
         if m:
             result[key] = m.group(1).lower()
     return result
+
+
+def _merge_auth_results(primary, fallback):
+    """Fill in any field primary left as None from fallback, without
+    overwriting anything primary already found."""
+    merged = dict(primary)
+    for key in ('spf', 'dkim', 'dmarc'):
+        if merged.get(key) is None:
+            merged[key] = fallback.get(key)
+    return merged
 
 
 def _parse_policy_from_auth_results(auth_results_header):
@@ -80,29 +91,40 @@ def run_authentication_check(parsed_email):
     if isinstance(auth_results_raw, list):
         auth_results_raw = ' '.join(str(a) for a in auth_results_raw)
 
-    parsed_auth = _parse_auth_results(auth_results_raw)
+    arc_auth_results_raw = headers.get('ARC-Authentication-Results')
+    if isinstance(arc_auth_results_raw, list):
+        arc_auth_results_raw = ' '.join(str(a) for a in arc_auth_results_raw)
+
+    parsed_auth = _merge_auth_results(
+        _parse_auth_results(auth_results_raw),
+        _parse_auth_results(arc_auth_results_raw),
+    )
 
     received_spf = headers.get('Received-SPF')
     spf_from_received = _parse_received_spf(received_spf)
 
     dkim_sig_present = bool(headers.get('DKIM-Signature'))
 
-    spf_result = parsed_auth['spf'] or spf_from_received or ('none' if not dkim_sig_present else None) or 'none'
+    spf_result = parsed_auth['spf'] or spf_from_received or 'none'
     dkim_result = parsed_auth['dkim'] or ('none' if not dkim_sig_present else 'present_unverified')
     dmarc_result = parsed_auth['dmarc'] or 'none'
 
     dmarc_dns = check_dmarc_dns(sender_domain)
     published_policy = (dmarc_dns['policy'] if dmarc_dns else None) \
-        or _parse_policy_from_auth_results(auth_results_raw)
+        or _parse_policy_from_auth_results(auth_results_raw) \
+        or _parse_policy_from_auth_results(arc_auth_results_raw)
 
     # --- Weighted verdict ---
     # Auth failure is treated as a HIGH-weight signal, distinct from soft NLP cues.
     high_weight_flags = []
     score = 0  # contribution to combined risk score (0-40 band reserved for auth)
 
-    if spf_result in ('fail', 'softfail'):
-        high_weight_flags.append(f"SPF {spf_result.upper()}: sending IP not authorized by domain's SPF record")
-        score += 15 if spf_result == 'fail' else 8
+    if spf_result in ('fail', 'softfail', 'none'):
+        if spf_result == 'none':
+            high_weight_flags.append("SPF NONE: domain publishes no SPF record at all")
+        else:
+            high_weight_flags.append(f"SPF {spf_result.upper()}: sending IP not authorized by domain's SPF record")
+        score += 15 if spf_result == 'fail' else (8 if spf_result == 'softfail' else 6)
     if dkim_result in ('fail', 'none'):
         high_weight_flags.append(f"DKIM {dkim_result.upper()}: message signature missing or invalid")
         score += 12 if dkim_result == 'fail' else 6
@@ -125,6 +147,7 @@ def run_authentication_check(parsed_email):
         'dmarc_dns_lookup_attempted': DNS_AVAILABLE,
         'dmarc_dns_record': dmarc_dns['record'] if dmarc_dns else None,
         'raw_authentication_results': auth_results_raw,
+        'raw_arc_authentication_results': arc_auth_results_raw,
         'raw_received_spf': str(received_spf) if received_spf else None,
         'high_weight_flags': high_weight_flags,
         'auth_risk_score': score,  # out of 40, feeds into combined risk score

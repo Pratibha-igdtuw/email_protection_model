@@ -21,6 +21,8 @@ import json
 import requests
 from datetime import datetime, timezone
 
+from modules import url_scan
+
 ABUSEIPDB_URL = "https://api.abuseipdb.com/api/v2/check"
 
 HERE = os.path.dirname(os.path.abspath(__file__))
@@ -128,7 +130,18 @@ def check_phishtank(sender_domain, urls):
     """Cross-references the sender domain and any URL hosts found in the
     email body against the bundled PhishTank-verified phishing domain
     snapshot. Returns every matching domain with the brand it was
-    impersonating and when PhishTank verified it."""
+    impersonating and when PhishTank verified it.
+
+    Known URL-shortener domains (bit.ly, tinyurl.com, etc.) are excluded
+    from URL-host matching -- a shortener commonly appears in a raw
+    phishing-domain snapshot because some past campaign USED it, not
+    because the shortener service itself is compromised. Flagging it here
+    would overstate what's actually known and could misflag an entirely
+    benign shortened link; url_scan.py already has a clearer, honest
+    heuristic for shorteners ("real destination hidden") that doesn't
+    make that overclaim. The sender's own domain is never excluded --
+    a sender directly using a shortener domain as their From address
+    would be a real anomaly worth flagging."""
     domains_db = _load_phishtank_domains()
     freshness = get_phishtank_freshness()
     if not domains_db:
@@ -140,7 +153,9 @@ def check_phishtank(sender_domain, urls):
     for u in urls or []:
         m = re.search(r'https?://([^/]+)', u)
         if m:
-            candidates.add(m.group(1).split(':')[0].lower())
+            host = m.group(1).split(':')[0].lower()
+            if host not in url_scan.KNOWN_SHORTENERS:
+                candidates.add(host)
 
     hits = []
     for domain in candidates:
