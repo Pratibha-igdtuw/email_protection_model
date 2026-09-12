@@ -14,6 +14,10 @@
 <body>
 <div class="auth-shell">
   <div class="auth-brand-panel">
+    <div class="auth-fx" aria-hidden="true">
+      <div class="auth-dots" id="authDots"></div>
+      <div class="auth-scanline"></div>
+    </div>
     <a class="brand" href="{{ url_for('landing') }}"><i class="fa-solid fa-shield-halved"></i>ThreatForensic<span style="color:#7fa0ff;">AI</span></a>
     <div class="auth-brand-copy">
       <h2>Welcome back to the case file.</h2>
@@ -60,5 +64,25 @@
     </div>
   </div>
 </div>
+<script>
+(function () {
+  var container = document.getElementById('authDots');
+  if (!container) return;
+  var cols = 6, rows = 4;
+  var cellW = 100 / cols, cellH = 100 / rows;
+  for (var r = 0; r < rows; r++) {
+    for (var c = 0; c < cols; c++) {
+      var dot = document.createElement('div');
+      dot.className = 'auth-dot';
+      var jitterX = cellW * 0.2 + Math.random() * cellW * 0.6;
+      var jitterY = cellH * 0.2 + Math.random() * cellH * 0.6;
+      dot.style.left = (c * cellW + jitterX) + '%';
+      dot.style.top = (r * cellH + jitterY) + '%';
+      dot.style.animationDelay = (Math.random() * 3).toFixed(1) + 's';
+      container.appendChild(dot);
+    }
+  }
+})();
+</script>
 </body>
 </html>

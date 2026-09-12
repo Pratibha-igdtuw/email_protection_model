@@ -2,6 +2,7 @@ import os
 import io
 import csv
 import uuid
+import time
 import logging
 import secrets
 from datetime import datetime
@@ -53,7 +54,12 @@ limiter = Limiter(
     app=app,
     storage_uri=app.config.get('RATELIMIT_STORAGE_URI', 'memory://'),
     enabled=app.config.get('RATELIMIT_ENABLED', True),
-    default_limits=[],  # only the routes below are limited; everything else is unlimited
+    # Baseline for every route; routes below layer a tighter, purpose-specific
+    # limit with @limiter.limit(...) on top of this. Previously this was []
+    # (only explicitly decorated routes were limited at all) -- dashboard,
+    # /api/cases, export.csv, case notes, and the mailbox analyze endpoint
+    # had no limit whatsoever.
+    default_limits=["120 per minute"],
 )
 
 login_manager = LoginManager()
@@ -212,9 +218,17 @@ def login():
         remember = bool(request.form.get('remember'))
         user = User.query.filter_by(email=email).first()
 
-        if not user or not user.check_password(password):
+        if user and user.is_locked():
+            flash('This account is temporarily locked due to repeated failed login attempts. '
+                  f'Try again in a few minutes.', 'error')
+        elif not user or not user.check_password(password):
+            if user:
+                user.register_failed_login()
+                db.session.commit()
             flash('Incorrect email or password.', 'error')
         else:
+            user.register_successful_login()
+            db.session.commit()
             login_user(user, remember=remember)
             flash(f"Welcome back, {user.full_name.split()[0]}.", 'success')
             next_page = request.args.get('next')
@@ -307,8 +321,15 @@ def _analyze_and_render(raw_email_bytes):
     custody_record = chain_of_custody.build_custody_record(case_ref, raw_path, evidence_hash)
     report_path = os.path.join(REPORTS_DIR, f"{case_ref}.pdf")
     pipeline_case = {**result, 'case_id': case_ref, 'custody_record': custody_record}
-    report_gen.generate_pdf_report(pipeline_case, report_path)
-    case.report_path = report_path
+    try:
+        report_gen.generate_pdf_report(pipeline_case, report_path)
+        case.report_path = report_path
+    except Exception as e:
+        # Analysis itself succeeded and is already saved -- a report-rendering
+        # failure shouldn't turn into a 500 that loses the whole result.
+        app.logger.error(f"PDF report generation failed for {case_ref}: {e}")
+        flash('Email analyzed successfully, but the PDF report could not be generated. '
+              'The case is saved -- contact an admin if this persists.', 'error')
     db.session.commit()
 
     return render_template('result.html', case_ref=case_ref, result=result, case=case)
@@ -431,16 +452,55 @@ def connect_mailbox():
     return render_template('connect_mailbox.html', gmail_oauth_available=oauth_gmail.is_configured())
 
 
+def _user_mailbox_cache_dir(user_id):
+    """Per-user cache dir for fetched-but-not-yet-analyzed mailbox messages.
+    Scoping the path by user_id means a guessed or leaked batch_id from
+    someone else's session resolves under *your* directory, not theirs --
+    no separate ownership lookup/table needed. (Fixes: batch_id alone used
+    to be enough to read another logged-in user's fetched mailbox.)"""
+    return os.path.join(REPORTS_DIR, '_mailbox_cache', str(int(user_id)))
+
+
+MAILBOX_CACHE_TTL_SECONDS = 24 * 60 * 60  # 24 hours
+
+
+def _cleanup_stale_mailbox_cache():
+    """Best-effort sweep: deletes cached fetched-mailbox .eml files older
+    than MAILBOX_CACHE_TTL_SECONDS, across all users. These are real
+    third-party mailbox contents sitting on disk unencrypted with no prior
+    expiry -- this bounds how long they linger after a picker session is
+    abandoned. Non-fatal: a cleanup failure never blocks the fetch."""
+    root = os.path.join(REPORTS_DIR, '_mailbox_cache')
+    if not os.path.isdir(root):
+        return
+    cutoff = time.time() - MAILBOX_CACHE_TTL_SECONDS
+    try:
+        for user_dir in os.listdir(root):
+            full_dir = os.path.join(root, user_dir)
+            if not os.path.isdir(full_dir):
+                continue
+            for fname in os.listdir(full_dir):
+                fpath = os.path.join(full_dir, fname)
+                try:
+                    if os.path.isfile(fpath) and os.path.getmtime(fpath) < cutoff:
+                        os.remove(fpath)
+                except OSError:
+                    pass  # another request may have already removed it
+    except OSError:
+        pass
+
+
 def _cache_emails_and_render_picker(raw_emails):
     """Shared by both the IMAP app-password path and the Gmail OAuth path:
     caches fetched raw messages server-side and renders the picker UI."""
+    _cleanup_stale_mailbox_cache()
     previews = []
     for idx, raw in enumerate(raw_emails):
         p = mailbox_connector.quick_preview(raw)
         p['index'] = idx
         previews.append(p)
 
-    cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
+    cache_dir = _user_mailbox_cache_dir(current_user.id)
     os.makedirs(cache_dir, exist_ok=True)
     batch_id = uuid.uuid4().hex[:10]
     for idx, raw in enumerate(raw_emails):
@@ -574,15 +634,24 @@ def connect_mailbox_oauth_disconnect():
 
 @app.route('/connect-mailbox/analyze/<batch_id>/<int:index>')
 @login_required
+@limiter.limit("30 per minute")
 def connect_mailbox_analyze(batch_id, index):
-    cache_dir = os.path.join(REPORTS_DIR, '_mailbox_cache')
+    cache_dir = _user_mailbox_cache_dir(current_user.id)
     path = os.path.join(cache_dir, f"{batch_id}_{index}.eml")
     if not os.path.exists(path):
         flash('This fetched email is no longer available — please reconnect and fetch again.', 'error')
         return redirect(url_for('connect_mailbox'))
     with open(path, 'rb') as f:
         raw_email_bytes = f.read()
-    return _analyze_and_render(raw_email_bytes)
+    response = _analyze_and_render(raw_email_bytes)
+    # _analyze_and_render already persisted a permanent copy under
+    # REPORTS_DIR/{case_ref}.eml -- no reason to keep this transient
+    # picker-cache copy of someone's mailbox content around too.
+    try:
+        os.remove(path)
+    except OSError:
+        pass
+    return response
 
 
 # ---------------------------------------------------------------------------
@@ -611,6 +680,15 @@ def submit_feedback(case_ref):
 @login_required
 @limiter.limit("5 per hour")
 def retrain_model():
+    if not current_user.is_admin:
+        # Feedback (submit_feedback) is still open to every analyst -- it's
+        # their opinion on their own case. But *acting* on unreviewed
+        # feedback to retrain the one shared model everyone uses is a
+        # single choke point: without this gate, any user could label their
+        # own phishing sample "False Positive" and immediately retrain the
+        # global classifier to stop catching it.
+        flash('Only an admin can trigger model retraining.', 'error')
+        return redirect(url_for('dashboard'))
     result = retrain_mod.retrain_with_feedback()
     if result['status'] == 'success':
         classifier.reload_model()

@@ -551,6 +551,34 @@ textarea.form-control { line-height: 1.5; }
   pointer-events: none;
 }
 .auth-brand-panel > * { position: relative; }
+.auth-fx { position: absolute; inset: 0; overflow: hidden; pointer-events: none; }
+.auth-dot {
+  position: absolute;
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: rgba(127,160,255,0.75);
+  animation: authDotFloat 4s ease-in-out infinite;
+}
+@keyframes authDotFloat {
+  0%, 100% { transform: translateY(0); opacity: 0.45; }
+  50% { transform: translateY(-14px); opacity: 1; }
+}
+.auth-scanline {
+  position: absolute;
+  left: 0;
+  right: 0;
+  height: 180px;
+  background: linear-gradient(180deg, transparent, rgba(127,160,255,0.13), transparent);
+  animation: authScanMove 7s linear infinite;
+}
+@keyframes authScanMove {
+  0% { top: -180px; }
+  100% { top: 100%; }
+}
+@media (prefers-reduced-motion: reduce) {
+  .auth-dot, .auth-scanline { animation: none; }
+}
 .auth-brand-panel .brand { font-family: var(--font-display); font-weight: 600; font-size: 1.15rem; display: flex; align-items: center; gap: 0.5rem; }
 .auth-brand-panel .brand i { color: #7fa0ff; }
 .auth-brand-copy h2 { color: #fff; font-size: 1.9rem; max-width: 380px; line-height: 1.25; margin-bottom: 0.9rem; }

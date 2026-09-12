@@ -29,6 +29,15 @@ class BaseConfig:
         'DATABASE_URL', f"sqlite:///{os.path.join(INSTANCE_DIR, 'threat_platform.db')}"
     )
 
+    # Cookie hardening -- applies to both the session cookie and Flask-Login's
+    # "remember me" cookie. SESSION_COOKIE_SECURE (HTTPS-only) is left off
+    # here since dev/testing commonly run on plain http://localhost; it's
+    # forced on in ProductionConfig below.
+    SESSION_COOKIE_HTTPONLY = True
+    SESSION_COOKIE_SAMESITE = 'Lax'
+    REMEMBER_COOKIE_HTTPONLY = True
+    REMEMBER_COOKIE_SAMESITE = 'Lax'
+
 
 class DevelopmentConfig(BaseConfig):
     DEBUG = True
@@ -47,6 +56,9 @@ class TestingConfig(BaseConfig):
 class ProductionConfig(BaseConfig):
     DEBUG = False
     AUTO_CREATE_TABLES = False  # use `flask db upgrade` instead -- see README
+    SESSION_COOKIE_SECURE = True
+    REMEMBER_COOKIE_SECURE = True
+    PREFERRED_URL_SCHEME = 'https'
 
     def __init__(self):
         if os.environ.get('SECRET_KEY') in (None, '', 'dev-secret-change-me'):

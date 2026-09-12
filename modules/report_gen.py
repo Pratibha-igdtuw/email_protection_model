@@ -125,6 +125,24 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
     classify = case.get('classify_result', {})
     elements.append(Paragraph("Content AI / NLP Analysis", h2))
     elements.append(Paragraph(f"ML phishing probability: <b>{classify.get('ml_probability', 0)}%</b>", normal))
+
+    explanation = classify.get('ml_explanation') or {}
+    toward_phishing = explanation.get('toward_phishing') or []
+    toward_legit = explanation.get('toward_legitimate') or []
+    if toward_phishing or toward_legit:
+        elements.append(Spacer(1, 4))
+        elements.append(Paragraph("Why the model reached this score — strongest contributing terms:", normal))
+        if toward_phishing:
+            terms = ', '.join(f"\u201c{_esc(str(c.get('token', '')))}\u201d" for c in toward_phishing)
+            elements.append(Paragraph(f"→ Toward phishing: {terms}",
+                                       ParagraphStyle('TowardPhish', parent=normal, fontSize=8.5,
+                                                       textColor=colors.HexColor('#b91c1c'))))
+        if toward_legit:
+            terms = ', '.join(f"\u201c{_esc(str(c.get('token', '')))}\u201d" for c in toward_legit)
+            elements.append(Paragraph(f"→ Toward legitimate: {terms}",
+                                       ParagraphStyle('TowardLegit', parent=normal, fontSize=8.5,
+                                                       textColor=colors.HexColor('#16a34a'))))
+
     if classify.get('red_flags'):
         for f in classify['red_flags']:
             elements.append(Paragraph(f"• {_esc(f)}", normal))
@@ -190,8 +208,9 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
     if phishtank_r.get('hits'):
         for hit in phishtank_r['hits']:
             elements.append(Paragraph(
-                f"• PhishTank-verified: {hit.get('domain')} (impersonating {hit.get('target')}, "
-                f"verified {hit.get('verified_time')})", normal))
+                f"• PhishTank-verified: {_esc(str(hit.get('domain', '')))} "
+                f"(impersonating {_esc(str(hit.get('target', '')))}, "
+                f"verified {_esc(str(hit.get('verified_time', '')))})", normal))
     if abuseipdb_r.get('status') == 'success':
         elements.append(Paragraph(
             f"• AbuseIPDB confidence score: {abuseipdb_r.get('abuse_confidence_score')}% "
@@ -240,7 +259,7 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
         ]))
         elements.append(ct)
         elements.append(Spacer(1, 6))
-        elements.append(Paragraph(custody.get('compliance_note', ''),
+        elements.append(Paragraph(_esc(custody.get('compliance_note', '')),
                                    ParagraphStyle('Compliance', parent=normal, fontSize=8, textColor=colors.HexColor('#475569'))))
 
     # --- Analyst notes ---

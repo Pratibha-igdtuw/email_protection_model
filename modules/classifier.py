@@ -96,6 +96,74 @@ def detect_suspicious_links(urls):
     return flags
 
 
+_EXPLANATION_NOISE_TOKENS = {'https', 'http', 'www', 'com', 'net', 'org', 'html', 'php'}
+
+
+def _is_noise_token(token):
+    """True if every word in this token (which may be a 1- or 2-gram) is a
+    URL-scheme/TLD fragment or a bare number. These are real features the
+    model uses and stay in ml_probability -- this only keeps them out of
+    the human-readable explanation, where 'https'/'net'/'24' read as
+    confusing noise rather than an interpretable reason."""
+    for part in token.split():
+        if not (part.isdigit() or part in _EXPLANATION_NOISE_TOKENS):
+            return False
+    return True
+
+
+def explain_classification(text, top_n=6):
+    """
+    Returns which tokens actually present in this email pushed the model's
+    decision toward phishing vs. legitimate, and by how much.
+
+    For MultinomialNB, log P(class|doc) is (up to a constant) a weighted sum
+    over features of tfidf_weight * feature_log_prob_[class]. So the
+    per-token contribution to the phishing-vs-legit log-odds is
+    tfidf_weight * (feature_log_prob_[phishing] - feature_log_prob_[legit]).
+    Summing these approximately reconstructs why predict_proba came out the
+    way it did, token by token -- which is the piece a bare probability
+    number doesn't give an analyst.
+    """
+    model = _get_model()
+    if model is None or not text or not text.strip():
+        return {'toward_phishing': [], 'toward_legitimate': []}
+    try:
+        tfidf = model.named_steps['tfidf']
+        clf = model.named_steps['clf']
+        classes = list(clf.classes_)
+        if 1 not in classes or 0 not in classes:
+            return {'toward_phishing': [], 'toward_legitimate': []}
+        phishing_idx = classes.index(1)
+        legit_idx = classes.index(0)
+
+        X = tfidf.transform([text])
+        feature_names = tfidf.get_feature_names_out()
+        log_odds = clf.feature_log_prob_[phishing_idx] - clf.feature_log_prob_[legit_idx]
+
+        contributions = []
+        coo = X.tocoo()
+        for col, weight in zip(coo.col, coo.data):
+            token = feature_names[col]
+            if _is_noise_token(token):
+                continue
+            contributions.append({
+                'token': token,
+                'contribution': float(weight) * float(log_odds[col]),
+            })
+
+        toward_phishing = sorted([c for c in contributions if c['contribution'] > 0],
+                                  key=lambda c: c['contribution'], reverse=True)[:top_n]
+        toward_legit = sorted([c for c in contributions if c['contribution'] < 0],
+                               key=lambda c: c['contribution'])[:top_n]
+
+        return {'toward_phishing': toward_phishing, 'toward_legitimate': toward_legit}
+    except Exception:
+        # Explanation is a nice-to-have on top of the probability, never a
+        # requirement -- any unexpected model/vectorizer shape degrades to
+        # "no explanation available" rather than breaking the analysis.
+        return {'toward_phishing': [], 'toward_legitimate': []}
+
+
 def classify_email(parsed_email, urls):
     """
     Returns:
@@ -116,6 +184,8 @@ def classify_email(parsed_email, urls):
             ml_probability = 0.0
     else:
         ml_probability = 0.0
+
+    ml_explanation = explain_classification(text)
 
     urgency_hits = detect_urgency_language(text)
     dn_mismatch = detect_display_name_mismatch(parsed_email.get('display_name'), parsed_email.get('sender_domain'))
@@ -142,6 +212,7 @@ def classify_email(parsed_email, urls):
 
     return {
         'ml_probability': ml_probability,
+        'ml_explanation': ml_explanation,
         'red_flags': red_flags,
         'nlp_risk_score': nlp_score,
         'urgency_phrases_found': urgency_hits,

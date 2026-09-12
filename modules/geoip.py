@@ -1,38 +1,45 @@
 """
 Module 2: GeoLocation Intelligence
-Uses ip-api.com (free tier, no key needed) for IP -> location/ASN/ISP lookup.
-Falls back gracefully to a "lookup unavailable" stub if offline or rate-limited,
-so the rest of the pipeline never breaks because of this module.
+Uses ipwho.is (free tier, no key needed, HTTPS) for IP -> location/ASN/ISP
+lookup. ip-api.com was used previously but its free tier is HTTP-only --
+sending the IP under investigation in cleartext and giving no way to
+detect a MITM tampering with the response that feeds the risk score.
+Falls back gracefully to a "lookup unavailable" stub if offline, rate
+limited, or the response shape is unexpected, so the rest of the
+pipeline never breaks because of this module.
 """
 import requests
 
-FREE_IP_API = "http://ip-api.com/json/{ip}?fields=status,message,country,countryCode,region,regionName,city,zip,lat,lon,isp,org,as,asname,query,proxy,hosting"
+IP_LOOKUP_API = "https://ipwho.is/{ip}"
 
 
 def lookup_ip(ip_address, timeout=4):
     if not ip_address:
         return {'status': 'no_ip', 'message': 'No originating IP could be extracted from headers.'}
     try:
-        resp = requests.get(FREE_IP_API.format(ip=ip_address), timeout=timeout)
+        resp = requests.get(IP_LOOKUP_API.format(ip=ip_address), timeout=timeout)
         data = resp.json()
-        if data.get('status') != 'success':
+        if not data.get('success', False):
             return {'status': 'failed', 'message': data.get('message', 'lookup failed'), 'ip': ip_address}
+        connection = data.get('connection') or {}
+        security = data.get('security') or {}
+        asn = connection.get('asn')
         return {
             'status': 'success',
             'ip': ip_address,
             'country': data.get('country'),
-            'country_code': data.get('countryCode'),
-            'region': data.get('regionName'),
+            'country_code': data.get('country_code'),
+            'region': data.get('region'),
             'city': data.get('city'),
-            'zip': data.get('zip'),
-            'lat': data.get('lat'),
-            'lon': data.get('lon'),
-            'isp': data.get('isp'),
-            'org': data.get('org'),
-            'asn': data.get('as'),
-            'as_name': data.get('asname'),
-            'is_proxy_or_vpn': data.get('proxy', False),
-            'is_hosting_provider': data.get('hosting', False),
+            'zip': data.get('postal'),
+            'lat': data.get('latitude'),
+            'lon': data.get('longitude'),
+            'isp': connection.get('isp'),
+            'org': connection.get('org'),
+            'asn': f"AS{asn}" if asn else None,
+            'as_name': connection.get('org'),
+            'is_proxy_or_vpn': bool(security.get('proxy') or security.get('vpn')),
+            'is_hosting_provider': bool(security.get('hosting')),
         }
     except Exception as e:
         return {'status': 'unavailable', 'message': f'GeoIP lookup unavailable ({e.__class__.__name__}). '

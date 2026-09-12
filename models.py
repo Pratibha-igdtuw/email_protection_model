@@ -1,9 +1,24 @@
 from datetime import datetime
+import os
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
+from cryptography.fernet import Fernet, InvalidToken
 
 db = SQLAlchemy()
+
+
+def _fernet():
+    key = os.environ.get('TOKEN_ENCRYPTION_KEY')
+    if not key:
+        raise RuntimeError(
+            'TOKEN_ENCRYPTION_KEY env var is not set -- mailbox OAuth tokens '
+            'cannot be encrypted/decrypted without it. Generate one once with:\n'
+            '  python -c "from cryptography.fernet import Fernet; print(Fernet.generate_key().decode())"\n'
+            'then set it as TOKEN_ENCRYPTION_KEY before starting the app (keep '
+            'it out of source control -- .env / your host\'s secret manager).'
+        )
+    return Fernet(key.encode())
 
 
 class User(UserMixin, db.Model):
@@ -14,6 +29,9 @@ class User(UserMixin, db.Model):
     email = db.Column(db.String(255), unique=True, nullable=False)
     organization = db.Column(db.String(255))
     password_hash = db.Column(db.String(255), nullable=False)
+    is_admin = db.Column(db.Boolean, default=False, nullable=False)
+    failed_login_attempts = db.Column(db.Integer, default=0, nullable=False)
+    locked_until = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
     def set_password(self, raw_password):
@@ -21,6 +39,27 @@ class User(UserMixin, db.Model):
 
     def check_password(self, raw_password):
         return check_password_hash(self.password_hash, raw_password)
+
+    LOCKOUT_THRESHOLD = 5
+    LOCKOUT_DURATION_MINUTES = 15
+
+    def is_locked(self):
+        return self.locked_until is not None and self.locked_until > datetime.utcnow()
+
+    def register_failed_login(self):
+        """Per-account lockout, on top of the existing per-IP rate limit on
+        /login -- an IP-only limit doesn't stop credential stuffing spread
+        across many accounts from one IP, or distributed across many IPs
+        against one account."""
+        self.failed_login_attempts = (self.failed_login_attempts or 0) + 1
+        if self.failed_login_attempts >= self.LOCKOUT_THRESHOLD:
+            from datetime import timedelta
+            self.locked_until = datetime.utcnow() + timedelta(minutes=self.LOCKOUT_DURATION_MINUTES)
+            self.failed_login_attempts = 0
+
+    def register_successful_login(self):
+        self.failed_login_attempts = 0
+        self.locked_until = None
 
     @property
     def initials(self):
@@ -111,14 +150,19 @@ class MailboxOAuthToken(db.Model):
     """OAuth2 refresh/access tokens for the Gmail API mailbox connector
     (USP 6 upgrade: OAuth instead of an IMAP app password). One row per
     user+provider. Tokens are the user's own credential to their mailbox,
-    scoped to read-only mail access -- never shared across users."""
+    scoped to read-only mail access -- never shared across users.
+
+    access_token / refresh_token are encrypted at rest (Fernet, see
+    TOKEN_ENCRYPTION_KEY) -- a raw DB dump alone is not enough to use them.
+    The DB column names are unchanged (access_token / refresh_token), so
+    this needs no migration; only the stored content is now ciphertext."""
     __tablename__ = 'mailbox_oauth_tokens'
 
     id = db.Column(db.Integer, primary_key=True)
     user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=False, index=True)
     provider = db.Column(db.String(32), nullable=False, default='gmail')
-    access_token = db.Column(db.Text, nullable=False)
-    refresh_token = db.Column(db.Text)
+    _access_token = db.Column('access_token', db.Text, nullable=False)
+    _refresh_token = db.Column('refresh_token', db.Text)
     token_expiry = db.Column(db.DateTime)
     scope = db.Column(db.Text)
     mailbox_email = db.Column(db.String(255))
@@ -128,6 +172,39 @@ class MailboxOAuthToken(db.Model):
     user = db.relationship('User', backref=db.backref('mailbox_tokens', lazy='dynamic'))
 
     __table_args__ = (db.UniqueConstraint('user_id', 'provider', name='uq_user_provider'),)
+
+    @property
+    def access_token(self):
+        return self._decrypt(self._access_token)
+
+    @access_token.setter
+    def access_token(self, value):
+        self._access_token = self._encrypt(value)
+
+    @property
+    def refresh_token(self):
+        return self._decrypt(self._refresh_token)
+
+    @refresh_token.setter
+    def refresh_token(self, value):
+        self._refresh_token = self._encrypt(value)
+
+    @staticmethod
+    def _encrypt(value):
+        if value is None:
+            return None
+        return _fernet().encrypt(value.encode('utf-8')).decode('utf-8')
+
+    @staticmethod
+    def _decrypt(value):
+        if value is None:
+            return None
+        try:
+            return _fernet().decrypt(value.encode('utf-8')).decode('utf-8')
+        except InvalidToken:
+            # Wrong/rotated TOKEN_ENCRYPTION_KEY, or corrupt data -- treat as
+            # unusable rather than silently returning ciphertext to callers.
+            return None
 
 
 class FeedbackLog(db.Model):
@@ -140,4 +217,3 @@ class FeedbackLog(db.Model):
     verdict = db.Column(db.String(24))  # 'Confirmed Phishing' or 'False Positive'
     used_in_training = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
-

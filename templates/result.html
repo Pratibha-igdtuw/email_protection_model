@@ -52,6 +52,26 @@
       <div class="card-header"><i class="fa-solid fa-robot me-2"></i>Content AI / NLP Analysis</div>
       <div class="card-body">
         <p><b>ML Phishing Probability:</b> {{ cl.ml_probability }}%</p>
+        {% set expl = cl.ml_explanation %}
+        {% if expl and (expl.toward_phishing or expl.toward_legitimate) %}
+        <p class="small text-muted mb-1">Why the model reached this score — strongest contributing terms:</p>
+        {% if expl.toward_phishing %}
+        <p class="small mb-1" style="color:#b91c1c;">Toward phishing:</p>
+        <div class="mb-2 d-flex flex-wrap gap-1">
+          {% for c in expl.toward_phishing %}
+          <span class="badge rounded-pill" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ c.token }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if expl.toward_legitimate %}
+        <p class="small mb-1" style="color:#16a34a;">Toward legitimate:</p>
+        <div class="mb-3 d-flex flex-wrap gap-1">
+          {% for c in expl.toward_legitimate %}
+          <span class="badge rounded-pill" style="background:#dcfce7;color:#16a34a;font-weight:500;">{{ c.token }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
         {% if cl.red_flags %}
           <ul class="mb-0">{% for f in cl.red_flags %}<li>{{ f }}</li>{% endfor %}</ul>
         {% else %}
