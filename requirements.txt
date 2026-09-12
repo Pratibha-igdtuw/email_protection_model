@@ -3,7 +3,7 @@ Flask-SQLAlchemy==3.1.1
 Flask-Login==0.6.3
 Flask-Migrate==4.0.7
 Flask-Limiter==3.8.0
-Flask-WTF==1.2.2
+redis==5.0.8  # needed only when RATELIMIT_STORAGE_URI points at redis:// (multi-worker prod)
 scikit-learn>=1.5.1
 joblib==1.4.2
 requests==2.32.3
@@ -19,3 +19,4 @@ google-auth-oauthlib==1.2.1
 google-api-python-client==2.143.0
 python-dateutil==2.9.0.post0
 cryptography==42.0.8
+web3==8.0.0  # only used if WEB3_* env vars are set (real blockchain anchoring) -- see README

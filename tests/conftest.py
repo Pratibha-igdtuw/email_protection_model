@@ -44,7 +44,7 @@ def sample_dir():
     return os.path.join(os.path.dirname(os.path.dirname(os.path.abspath(__file__))), 'sample_emails')
 
 
-def register_and_login(client, email='analyst@example.com', password='correcthorsebattery'):
+def register_and_login(client, email='analyst@example.com', password='CorrectHorse1!'):
     client.post('/signup', data={
         'full_name': 'Test Analyst',
         'email': email,

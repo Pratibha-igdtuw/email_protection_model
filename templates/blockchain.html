@@ -1,0 +1,115 @@
+{% extends 'base.html' %}
+{% block title %}Evidence Ledger — ThreatForensicAI{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-3 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-0"><i class="fa-solid fa-link me-2"></i>Blockchain Evidence Ledger</h3>
+    <p class="text-muted small mb-0">Append-only hash chain of every case's evidence hash. Each block commits to the previous block's hash — editing any past case breaks the chain from that point forward.</p>
+  </div>
+  {% if chain_valid %}
+    <span class="badge bg-success fs-6"><i class="fa-solid fa-circle-check me-1"></i>Chain Verified — {{ chain_length }} block(s), unbroken</span>
+  {% else %}
+    <span class="badge bg-danger fs-6"><i class="fa-solid fa-triangle-exclamation me-1"></i>Chain Broken at block #{{ broken_at }}</span>
+  {% endif %}
+</div>
+
+{% if onchain_configured %}
+<div class="alert alert-primary small mb-3">
+  <i class="fa-solid fa-globe me-1"></i>
+  On-chain anchoring is active on <b>{{ onchain_network }}</b> — each block's hash is also published to a public
+  smart contract, so its existence at a given time is attested to by that network, not just by this server.
+  Click <b>Verify</b> on any confirmed block to re-check it straight from the chain.
+</div>
+{% else %}
+<div class="alert alert-secondary small mb-3">
+  <i class="fa-solid fa-circle-info me-1"></i>
+  On-chain anchoring isn't configured on this server yet — the local hash-chain below still fully protects
+  against undetected tampering with this database. Anchoring each block's hash on a public testnet adds an
+  independent layer (verifiable without trusting this server at all). See the README's
+  "Real blockchain anchoring setup" section to enable it — takes about 10 minutes with a free wallet and faucet.
+</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-hover mb-0 align-middle">
+      <thead class="table-dark">
+        <tr>
+          <th>#</th>
+          <th>Case Ref</th>
+          <th>Evidence SHA-256</th>
+          <th>Previous Block Hash</th>
+          <th>Block Hash</th>
+          <th>Nonce</th>
+          <th>Mined At</th>
+          <th>On-Chain Status</th>
+        </tr>
+      </thead>
+      <tbody>
+        {% for block in blocks %}
+        <tr>
+          <td>{{ block.block_index }}</td>
+          <td><a href="{{ url_for('case_detail', case_ref=block.case_ref) }}">{{ block.case_ref }}</a></td>
+          <td class="small font-mono">{{ block.evidence_sha256[:16] }}…</td>
+          <td class="small font-mono">{{ block.previous_hash[:16] }}…</td>
+          <td class="small font-mono">{{ block.block_hash[:16] }}…</td>
+          <td>{{ block.nonce }}</td>
+          <td>{{ block.timestamp.strftime('%d %b %Y, %H:%M') if block.timestamp else '—' }}</td>
+          <td>
+            <div class="onchain-cell" data-block-index="{{ block.block_index }}" data-block-hash="{{ block.block_hash }}">
+              {% if block.onchain_status == 'confirmed' %}
+                <span class="badge bg-success">Confirmed</span>
+                <button type="button" class="btn btn-outline-secondary btn-sm ms-1 verify-onchain-btn">Verify</button>
+              {% elif block.onchain_status == 'submitted' %}
+                <span class="badge bg-warning text-dark">Pending confirmation…</span>
+              {% elif block.onchain_status == 'failed' %}
+                <span class="badge bg-danger" title="{{ block.onchain_error or '' }}">Failed</span>
+              {% else %}
+                <span class="badge bg-secondary">Not configured</span>
+              {% endif %}
+              <div class="verify-result small mt-1"></div>
+            </div>
+          </td>
+        </tr>
+        {% else %}
+        <tr><td colspan="8" class="text-center text-muted py-4">No blocks yet — analyze an email to mine the first block.</td></tr>
+        {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+
+<script>
+document.querySelectorAll('.verify-onchain-btn').forEach(function (btn) {
+  btn.addEventListener('click', function () {
+    var cell = btn.closest('.onchain-cell');
+    var blockIndex = cell.getAttribute('data-block-index');
+    var resultEl = cell.querySelector('.verify-result');
+    btn.disabled = true;
+    btn.textContent = 'Checking…';
+    fetch('/blockchain/' + blockIndex + '/verify-onchain')
+      .then(function (r) { return r.json(); })
+      .then(function (data) {
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+        if (data.status === 'found') {
+          var when = new Date(data.timestamp * 1000).toLocaleString();
+          var link = data.explorer_url
+            ? ' <a href="' + data.explorer_url + '" target="_blank" rel="noopener">view tx</a>'
+            : '';
+          resultEl.innerHTML = '<span class="text-success"><i class="fa-solid fa-check"></i> On-chain at ' + when + '</span>' + link;
+        } else if (data.status === 'not_found') {
+          resultEl.innerHTML = '<span class="text-danger">Not found on-chain — investigate.</span>';
+        } else {
+          resultEl.innerHTML = '<span class="text-muted">' + (data.message || data.status) + '</span>';
+        }
+      })
+      .catch(function () {
+        btn.disabled = false;
+        btn.textContent = 'Verify';
+        resultEl.innerHTML = '<span class="text-danger">Check failed — network error.</span>';
+      });
+  });
+});
+</script>
+{% endblock %}

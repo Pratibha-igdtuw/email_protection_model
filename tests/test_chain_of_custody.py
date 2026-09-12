@@ -36,12 +36,13 @@ def test_verify_integrity_missing_file():
     assert current_hash is None
 
 
-def test_build_custody_record_contains_expected_fields(tmp_path):
+def test_build_custody_record_contains_expected_fields(app, tmp_path):
     path = tmp_path / "evidence.eml"
     path.write_bytes(b"data")
     evidence_hash = chain_of_custody.compute_sha256(b"data")
 
-    record = chain_of_custody.build_custody_record('CASE-1', str(path), evidence_hash)
+    with app.app_context():
+        record = chain_of_custody.build_custody_record('CASE-1', str(path), evidence_hash)
     assert record['case_ref'] == 'CASE-1'
     assert record['integrity_verified'] is True
     assert record['hash_algorithm'] == 'SHA-256'

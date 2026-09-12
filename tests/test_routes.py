@@ -21,7 +21,7 @@ def _stub_external_lookups(monkeypatch):
     monkeypatch.setattr(auth_check, 'check_dmarc_dns', lambda domain: None)
 
 
-def _signup(client, email='analyst@example.com', password='correcthorsebattery'):
+def _signup(client, email='analyst@example.com', password='CorrectHorse1!'):
     return client.post('/signup', data={
         'full_name': 'Test Analyst',
         'email': email,
@@ -55,7 +55,7 @@ def test_signup_rejects_duplicate_email(client):
     client.get('/logout')
     resp = client.post('/signup', data={
         'full_name': 'Another', 'email': 'dupe@example.com', 'organization': '',
-        'password': 'correcthorsebattery', 'confirm_password': 'correcthorsebattery',
+        'password': 'CorrectHorse1!', 'confirm_password': 'CorrectHorse1!',
     }, follow_redirects=True)
     assert b'already exists' in resp.data
 

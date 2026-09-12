@@ -241,7 +241,7 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
     # --- Chain of custody ---
     custody = case.get('custody_record')
     if custody:
-        elements.append(Paragraph("Chain of Custody & Evidence Integrity", h2))
+        elements.append(Paragraph("Blockchain-Based Chain of Custody & Evidence Integrity", h2))
         custody_rows = [
             ['Evidence File', os.path.basename(custody.get('evidence_file', ''))],
             ['Hash Algorithm', custody.get('hash_algorithm', 'SHA-256')],
@@ -250,6 +250,12 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
             ['Integrity Verified', 'YES — unmodified' if custody.get('integrity_verified') else 'NO — mismatch detected'],
             ['Custodian', custody.get('custodian', '')],
             ['Record Generated', custody.get('record_generated_at', '')],
+            ['Ledger Block #', str(custody.get('block_index', ''))],
+            ['Block Hash', custody.get('block_hash', '') or ''],
+            ['Previous Block Hash', custody.get('previous_block_hash', '') or ''],
+            ['Block Nonce (PoW)', str(custody.get('block_nonce', ''))],
+            ['Chain Length', str(custody.get('chain_length', ''))],
+            ['Chain Integrity', 'YES — unbroken' if custody.get('chain_valid') else 'NO — break detected'],
         ]
         ct = Table(custody_rows, colWidths=[55 * mm, 105 * mm])
         ct.setStyle(TableStyle([

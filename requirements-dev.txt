@@ -1,3 +1,5 @@
 -r requirements.txt
 pytest==8.3.2
 pytest-cov==5.0.0
+eth-tester==0.14.0b1  # in-memory EVM used by tests/test_blockchain_anchor.py -- no network/solc needed
+py-evm==0.12.1b1

@@ -1,5 +1,6 @@
 import os
 import io
+import re
 import csv
 import uuid
 import time
@@ -11,13 +12,13 @@ from flask import (Flask, render_template, request, redirect, url_for,
                     flash, send_file, jsonify, Response, abort, session)
 from flask_login import (LoginManager, login_user, logout_user, login_required,
                           current_user)
-from flask_wtf import CSRFProtect
 from flask_migrate import Migrate
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
+from werkzeug.utils import secure_filename
 
 from config import get_config
-from models import db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToken
+from models import db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToken, ChainBlock
 from modules import parser as parser_mod
 from modules import auth_check
 from modules import geoip as geoip_mod
@@ -30,6 +31,8 @@ from modules import clustering
 from modules import mailbox_connector
 from modules import oauth_gmail
 from modules import chain_of_custody
+from modules import blockchain
+from modules import blockchain_anchor
 from modules import retrain as retrain_mod
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
@@ -41,10 +44,69 @@ os.makedirs(REPORTS_DIR, exist_ok=True)
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('email_threat_platform')
 
+# Upload validation for the analyze endpoint. This is not an antivirus
+# check -- the uploaded file is only ever parsed as email text (never
+# executed, never served back, never saved under its original name/ext,
+# since it's persisted as {case_ref}.eml). It exists to reject obviously
+# wrong uploads (images, archives, binaries) early with a clear error
+# instead of a confusing downstream parse failure.
+ALLOWED_EML_EXTENSIONS = {'.eml', '.txt'}
+BLOCKED_CONTENT_TYPE_PREFIXES = ('image/', 'video/', 'audio/', 'application/zip',
+                                  'application/x-zip-compressed', 'application/pdf',
+                                  'application/x-msdownload', 'application/vnd.')
+
+
+def _validate_eml_upload(file_storage):
+    """Returns an error message string if the upload should be rejected,
+    or None if it's acceptable to parse."""
+    filename = secure_filename(file_storage.filename or '')
+    ext = os.path.splitext(filename)[1].lower()
+    if ext not in ALLOWED_EML_EXTENSIONS:
+        return 'Only .eml or .txt files are accepted.'
+
+    content_type = (file_storage.content_type or '').lower()
+    if content_type.startswith(BLOCKED_CONTENT_TYPE_PREFIXES):
+        return 'That file type is not accepted -- upload a raw .eml/.txt email export.'
+
+    # Peek at the first chunk without consuming the stream for the real
+    # read: a null byte in the first 2KB is a strong signal of a binary
+    # file (image/archive/executable) mislabeled with a .eml extension.
+    head = file_storage.stream.read(2048)
+    file_storage.stream.seek(0)
+    if b'\x00' in head:
+        return 'That file looks like a binary file, not a plain-text email export.'
+
+    return None
+
+
+def _password_policy_error(password):
+    """Returns an error message if the password fails the complexity
+    policy, or None if it passes. Length-only checks let through things
+    like 'aaaaaaaa' or '12345678' -- requiring a mix of character classes
+    meaningfully raises the cost of brute-forcing/credential-stuffing an
+    analyst account without demanding an unreasonably long password."""
+    if len(password) < 8:
+        return 'Password must be at least 8 characters.'
+    if not re.search(r'[A-Z]', password):
+        return 'Password must include at least one uppercase letter.'
+    if not re.search(r'[a-z]', password):
+        return 'Password must include at least one lowercase letter.'
+    if not re.search(r'\d', password):
+        return 'Password must include at least one number.'
+    if not re.search(r'[^A-Za-z0-9]', password):
+        return 'Password must include at least one symbol (e.g. ! @ # $ %).'
+    return None
+
+
 app = Flask(__name__)
 app.config.from_object(get_config())
 
-csrf = CSRFProtect(app)
+# Note: CSRF protection here is the custom session-token check in
+# _require_login_and_csrf() below (not Flask-WTF's CSRFProtect). Both
+# systems generate incompatible token formats -- running both at once
+# would reject every login/signup POST in production, since the token
+# the template renders (the custom one) doesn't match what Flask-WTF's
+# validator expects.
 
 db.init_app(app)
 migrate = Migrate(app, db)  # `flask db migrate` / `flask db upgrade` -- see README
@@ -102,7 +164,7 @@ def _require_login_and_csrf():
     if not current_user.is_authenticated:
         return redirect(url_for('login', next=request.path))
 
-    if request.method == 'POST':
+    if request.method == 'POST' and app.config.get('WTF_CSRF_ENABLED', True):
         submitted = request.form.get('csrf_token', '')
         if not submitted or not secrets.compare_digest(submitted, session['csrf_token']):
             abort(400, description='Invalid or missing CSRF token. Please reload the page and try again.')
@@ -184,10 +246,12 @@ def signup():
         password = request.form.get('password', '')
         confirm = request.form.get('confirm_password', '')
 
+        password_error = _password_policy_error(password) if password else None
+
         if not form['full_name'] or not form['email'] or not password:
             flash('Name, work email and password are required.', 'error')
-        elif len(password) < 8:
-            flash('Password must be at least 8 characters.', 'error')
+        elif password_error:
+            flash(password_error, 'error')
         elif password != confirm:
             flash('Passwords do not match.', 'error')
         elif User.query.filter_by(email=form['email']).first():
@@ -258,6 +322,10 @@ def analyze():
     raw_email_bytes = None
     if 'eml_file' in request.files and request.files['eml_file'].filename:
         f = request.files['eml_file']
+        error = _validate_eml_upload(f)
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('workspace'))
         raw_email_bytes = f.read()
     else:
         pasted = request.form.get('raw_email', '').strip()
@@ -387,6 +455,39 @@ def update_notes(case_ref):
     db.session.commit()
     flash('Analyst notes saved.', 'success')
     return redirect(url_for('case_detail', case_ref=case_ref))
+
+
+@app.route('/blockchain')
+@login_required
+def blockchain_ledger():
+    """Read-only view of the append-only evidence hash-chain -- shows
+    every mined block, a live end-to-end verification of the local
+    chain, and (if configured) each block's public on-chain anchoring
+    status, so tampering with any past case's evidence is visible
+    immediately either way."""
+    blockchain.refresh_pending_onchain_status()
+    blocks = blockchain.get_all_blocks()
+    chain_valid, broken_at, chain_length = blockchain.verify_chain()
+    return render_template(
+        'blockchain.html', blocks=blocks, chain_valid=chain_valid,
+        broken_at=broken_at, chain_length=chain_length,
+        onchain_configured=blockchain_anchor.is_configured(),
+        onchain_network=blockchain_anchor.network_name(),
+    )
+
+
+@app.route('/blockchain/<int:block_index>/verify-onchain')
+@login_required
+@limiter.limit("30 per minute")
+def blockchain_verify_onchain(block_index):
+    """Independently re-checks a block's anchoring straight from the
+    public chain (not from this app's own database) -- this is what
+    actually backs the 'don't trust this server, verify it yourself'
+    claim. Returns JSON; called from a small fetch() in blockchain.html."""
+    block = ChainBlock.query.filter_by(block_index=block_index).first_or_404()
+    result = blockchain_anchor.verify_onchain(block.block_hash)
+    result['explorer_url'] = blockchain_anchor.explorer_tx_url(block.onchain_tx_hash)
+    return jsonify(result)
 
 
 @app.route('/dashboard/export.csv')

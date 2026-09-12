@@ -50,6 +50,9 @@ class TestingConfig(BaseConfig):
     AUTO_CREATE_TABLES = True
     RATELIMIT_ENABLED = False
     SQLALCHEMY_DATABASE_URI = 'sqlite:///:memory:'
+    # Read by the custom CSRF check in _require_login_and_csrf() (app.py),
+    # not by Flask-WTF -- kept under the same config key so existing test
+    # fixtures didn't need renaming.
     WTF_CSRF_ENABLED = False
 
 
@@ -74,6 +77,18 @@ class ProductionConfig(BaseConfig):
                 'concurrent-writer story -- consider PostgreSQL (set DATABASE_URL) for '
                 'anything with multiple workers or meaningful write concurrency. '
                 'Set ALLOW_SQLITE_IN_PROD=1 to silence this warning.'
+            )
+        if BaseConfig.RATELIMIT_STORAGE_URI.startswith('memory://') and not os.environ.get('ALLOW_MEMORY_RATELIMIT_IN_PROD'):
+            import warnings
+            warnings.warn(
+                'Running production with in-memory rate-limit storage. Each worker process '
+                '(e.g. each gunicorn -w worker) keeps its own counters, so login/signup/'
+                'analyze limits are effectively multiplied by the worker count instead of '
+                'shared -- an attacker can get N times the intended attempts by hitting '
+                'different workers. Set RATELIMIT_STORAGE_URI=redis://<host>:6379/0 (and '
+                'install the redis package) for a shared, correctly-enforced limit across '
+                'workers. Set ALLOW_MEMORY_RATELIMIT_IN_PROD=1 to silence this warning if '
+                'you are intentionally running a single worker.'
             )
 
 

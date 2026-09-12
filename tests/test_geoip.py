@@ -15,11 +15,15 @@ def test_lookup_ip_no_ip():
 
 
 def test_lookup_ip_success(monkeypatch):
+    # Shaped like a real ipwho.is response (see modules/geoip.py header for
+    # why the provider is ipwho.is, not ip-api.com) -- nested 'connection'/
+    # 'security' objects and a boolean 'success' flag, not the flat
+    # ip-api.com shape this mock used before the provider migration.
     fake_data = {
-        'status': 'success', 'country': 'Russia', 'countryCode': 'RU', 'regionName': 'Moscow',
-        'city': 'Moscow', 'zip': '101000', 'lat': 55.75, 'lon': 37.6, 'isp': 'Some Hosting',
-        'org': 'Some Hosting Org', 'as': 'AS12345', 'asname': 'SOME-AS',
-        'proxy': False, 'hosting': True,
+        'success': True, 'ip': '185.220.101.45', 'country': 'Russia', 'country_code': 'RU',
+        'region': 'Moscow', 'city': 'Moscow', 'postal': '101000', 'latitude': 55.75, 'longitude': 37.6,
+        'connection': {'asn': 12345, 'org': 'Some Hosting Org', 'isp': 'Some Hosting'},
+        'security': {'proxy': False, 'vpn': False, 'hosting': True},
     }
     monkeypatch.setattr(geoip.requests, 'get', lambda url, timeout=4: _FakeResponse(fake_data))
 
@@ -31,7 +35,7 @@ def test_lookup_ip_success(monkeypatch):
 
 def test_lookup_ip_failed_status(monkeypatch):
     monkeypatch.setattr(geoip.requests, 'get',
-                         lambda url, timeout=4: _FakeResponse({'status': 'fail', 'message': 'invalid query'}))
+                         lambda url, timeout=4: _FakeResponse({'success': False, 'message': 'invalid query'}))
     result = geoip.lookup_ip('not-an-ip')
     assert result['status'] == 'failed'
 

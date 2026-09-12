@@ -217,3 +217,48 @@ class FeedbackLog(db.Model):
     verdict = db.Column(db.String(24))  # 'Confirmed Phishing' or 'False Positive'
     used_in_training = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class ChainBlock(db.Model):
+    """Append-only hash chain -- the blockchain piece of the forensic
+    evidence trail (see modules/blockchain.py for the chaining logic).
+
+    One block is mined per case. Each block commits to the previous
+    block's hash, so editing any past block (or the case evidence it
+    attests to) changes that block's hash and breaks every link after
+    it -- detectable by walking the chain with blockchain.verify_chain(),
+    without needing to trust any single row in isolation."""
+    __tablename__ = 'chain_blocks'
+
+    id = db.Column(db.Integer, primary_key=True)
+    block_index = db.Column(db.Integer, unique=True, nullable=False)
+    case_ref = db.Column(db.String(32), nullable=False, index=True)
+    evidence_sha256 = db.Column(db.String(64), nullable=False)
+    previous_hash = db.Column(db.String(64), nullable=False)
+    block_hash = db.Column(db.String(64), nullable=False)
+    nonce = db.Column(db.Integer, default=0, nullable=False)
+    timestamp = db.Column(db.DateTime, default=datetime.utcnow)
+
+    # Real-blockchain anchoring (modules/blockchain_anchor.py) -- publishes
+    # block_hash to a public Ethereum-compatible testnet via the
+    # EvidenceAnchor smart contract, independent of this app's own database.
+    # onchain_status: not_configured | submitted | confirmed | failed
+    onchain_status = db.Column(db.String(24), default='not_configured', nullable=False)
+    onchain_tx_hash = db.Column(db.String(80))
+    onchain_network = db.Column(db.String(32))
+    onchain_confirmed_at = db.Column(db.DateTime)
+    onchain_error = db.Column(db.Text)
+
+    def to_dict(self):
+        return {
+            'block_index': self.block_index,
+            'case_ref': self.case_ref,
+            'evidence_sha256': self.evidence_sha256,
+            'previous_hash': self.previous_hash,
+            'block_hash': self.block_hash,
+            'nonce': self.nonce,
+            'timestamp': self.timestamp.strftime('%Y-%m-%d %H:%M:%S UTC') if self.timestamp else None,
+            'onchain_status': self.onchain_status,
+            'onchain_tx_hash': self.onchain_tx_hash,
+            'onchain_network': self.onchain_network,
+        }
