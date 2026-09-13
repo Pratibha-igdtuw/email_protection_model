@@ -268,6 +268,95 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
     else:
         elements.append(Paragraph("No URLs found in this email.", normal))
 
+    # --- Trusted Relay Reconstruction ---
+    relay_trust = case.get('relay_trust_result') or {}
+    elements.append(Paragraph("Trusted Relay Reconstruction — Earliest Reliable Hop", h2))
+    STATUS_COLORS = {
+        'Trusted': colors.HexColor('#16a34a'),
+        'Suspicious': colors.HexColor('#ca8a04'),
+        'Untrusted': colors.HexColor('#b91c1c'),
+    }
+    relay_hops = relay_trust.get('hops') or []
+    if relay_hops:
+        header_row = ['Hop', 'Status', 'IP', 'ASN', 'Country', 'Timestamp', 'Chain-consistent']
+        rt_rows = [header_row]
+        for h in relay_hops:
+            consistency = ('Yes' if h.get('consistent_with_next_hop') is True
+                            else 'No' if h.get('consistent_with_next_hop') is False else '—')
+            rt_rows.append([
+                str(h.get('hop_number')),
+                h.get('status', ''),
+                h.get('ip') or ('private/none' if h.get('private_ip_only') else '—'),
+                h.get('asn') or '—',
+                h.get('country') or '—',
+                (h.get('timestamp') or '')[:22],
+                consistency,
+            ])
+        rtt = Table(rt_rows, colWidths=[12 * mm, 22 * mm, 26 * mm, 22 * mm, 24 * mm, 40 * mm, 24 * mm])
+        style_cmds = [
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#334155')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#cbd5e1')),
+            ('FONTSIZE', (0, 0), (-1, -1), 7.5),
+            ('ROWBACKGROUNDS', (0, 1), (-1, -1), [colors.white, colors.HexColor('#f8fafc')]),
+        ]
+        for row_idx, h in enumerate(relay_hops, start=1):
+            sc = STATUS_COLORS.get(h.get('status'))
+            if sc:
+                style_cmds.append(('TEXTCOLOR', (1, row_idx), (1, row_idx), sc))
+                style_cmds.append(('FONTNAME', (1, row_idx), (1, row_idx), 'Helvetica-Bold'))
+        rtt.setStyle(TableStyle(style_cmds))
+        elements.append(rtt)
+
+        # Per-hop reasoning, kept short -- this is what makes each
+        # classification auditable rather than a bare label.
+        elements.append(Spacer(1, 4))
+        for h in relay_hops:
+            for reason in h.get('reasons', []):
+                elements.append(Paragraph(
+                    f"Hop {h.get('hop_number')} ({h.get('status')}): {_esc(reason)}",
+                    ParagraphStyle('RelayReason', parent=normal, fontSize=7.5,
+                                   textColor=colors.HexColor('#64748b'))))
+    else:
+        elements.append(Paragraph("No Received headers were available to reconstruct.", normal))
+
+    node = relay_trust.get('earliest_reliable_node')
+    if node:
+        elements.append(Spacer(1, 6))
+        label = "Earliest Reliable Sending Node" if not node.get('unverified') else \
+            "Earliest Sending Node (unverified — no trusted checkpoint found)"
+        node_rows = [
+            [label, ''],
+            ['IP Address', node.get('ip') or 'Unknown'],
+            ['Country', node.get('country') or 'Unknown'],
+            ['ASN', node.get('asn') or 'Unknown'],
+            ['ISP / Org', node.get('isp') or 'Unknown'],
+            ['Verified By (trusted receiving server)', node.get('verified_by') or 'N/A'],
+            ['Confidence', f"{node.get('confidence', 0)}%"],
+        ]
+        nt = Table(node_rows, colWidths=[65 * mm, 95 * mm])
+        nt.setStyle(TableStyle([
+            ('SPAN', (0, 0), (-1, 0)),
+            ('BACKGROUND', (0, 0), (-1, 0), colors.HexColor('#1e293b')),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.white),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTNAME', (0, 1), (0, -1), 'Helvetica-Bold'),
+            ('GRID', (0, 0), (-1, -1), 0.4, colors.HexColor('#cbd5e1')),
+            ('FONTSIZE', (0, 0), (-1, -1), 9),
+        ]))
+        elements.append(nt)
+        elements.append(Spacer(1, 4))
+        elements.append(Paragraph(_esc(node.get('summary', '')),
+                                   ParagraphStyle('RelaySummary', parent=normal, fontSize=8.5,
+                                                  textColor=colors.HexColor('#475569'))))
+        if relay_trust.get('trust_boundary_hop_number'):
+            elements.append(Paragraph(
+                f"Earlier header entries (hop numbers greater than "
+                f"{relay_trust['trust_boundary_hop_number']}) are treated as untrusted because they "
+                f"appear before the first verified receiving server.",
+                ParagraphStyle('RelayNote', parent=normal, fontSize=8, textColor=colors.HexColor('#94a3b8'))))
+
     # --- Header trace ---
     elements.append(Paragraph("Full Header Relay Trace", h2))
     for hop in parsed.get('received_chain', []):

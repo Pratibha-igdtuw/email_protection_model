@@ -33,6 +33,7 @@ from models import db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToke
 from modules import parser as parser_mod
 from modules import auth_check
 from modules import geoip as geoip_mod
+from modules import relay_trust as relay_trust_mod
 from modules import whois_lookup
 from modules import classifier
 from modules import blacklist as blacklist_mod
@@ -226,16 +227,21 @@ def run_pipeline(raw_email_bytes):
     # is CPU-bound (fast) and the local blacklist check touches the Flask-
     # SQLAlchemy session, which isn't safe to share across threads, so both
     # stay on the main thread as before.
-    with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='pipeline') as pool:
+    with concurrent.futures.ThreadPoolExecutor(max_workers=5, thread_name_prefix='pipeline') as pool:
         auth_future = pool.submit(auth_check.run_authentication_check, parsed)
         geo_future = pool.submit(geoip_mod.lookup_ip, parsed.get('originating_ip'))
         whois_future = pool.submit(whois_lookup.lookup_domain, parsed.get('sender_domain'))
         abuseipdb_future = pool.submit(blacklist_mod.check_abuseipdb, parsed.get('originating_ip'))
+        # Trusted Relay Reconstruction does its own per-hop GeoIP lookups
+        # internally (concurrently), so it runs as one more independent
+        # branch alongside the rest rather than blocking on them.
+        relay_future = pool.submit(relay_trust_mod.reconstruct_trusted_relay, parsed)
 
         auth_result = auth_future.result()
         geo_result = geo_future.result()
         whois_result = whois_future.result()
         abuseipdb_result = abuseipdb_future.result()
+        relay_trust_result = relay_future.result()
 
     geo_mismatch = geoip_mod.check_brand_mismatch(parsed.get('sender_domain'), geo_result)
     classify_result = classifier.classify_email(parsed, urls)
@@ -270,6 +276,7 @@ def run_pipeline(raw_email_bytes):
         'attachment_result': attachment_result,
         'url_result': url_result,
         'risk_result': risk_result,
+        'relay_trust_result': relay_trust_result,
     }
 
 

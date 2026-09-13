@@ -7,6 +7,7 @@
 {% set whois_r = result.whois_result %}
 {% set cl = result.classify_result %}
 {% set parsed = result.parsed_email %}
+{% set relay_trust = result.relay_trust_result %}
 
 <div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
   <div>
@@ -267,6 +268,89 @@
         {% endfor %}
         {% else %}
         <p class="text-muted mb-0"><i class="fa-solid fa-check me-1"></i>No URLs found in this email.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-shield-halved me-2"></i>Trusted Relay Reconstruction — Earliest Reliable Hop</div>
+      <div class="card-body">
+        {% if relay_trust and relay_trust.hops %}
+        <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped align-middle">
+          <thead>
+            <tr>
+              <th>Hop</th><th>Status</th><th>IP</th><th>ASN</th><th>Country</th>
+              <th>Timestamp</th><th>Consistent w/ next hop</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for h in relay_trust.hops %}
+            <tr class="{{ 'table-danger' if h.status == 'Untrusted' else ('table-warning' if h.status == 'Suspicious' else '') }}">
+              <td>{{ h.hop_number }}</td>
+              <td>
+                {% if h.status == 'Trusted' %}
+                  <span class="badge bg-success">Trusted</span>
+                {% elif h.status == 'Suspicious' %}
+                  <span class="badge bg-warning text-dark">Suspicious</span>
+                {% else %}
+                  <span class="badge bg-danger">Untrusted</span>
+                {% endif %}
+              </td>
+              <td class="small">{{ h.ip or ('private/none' if h.private_ip_only else '—') }}</td>
+              <td class="small">{{ h.asn or '—' }}</td>
+              <td class="small">{{ h.country or '—' }}</td>
+              <td class="small">{{ h.timestamp }}</td>
+              <td class="small">
+                {% if h.consistent_with_next_hop is none %}—
+                {% elif h.consistent_with_next_hop %}<i class="fa-solid fa-check text-success"></i>
+                {% else %}<i class="fa-solid fa-xmark text-danger"></i>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% for h in relay_trust.hops %}
+          {% for reason in h.reasons %}
+          <p class="small text-muted mb-1">Hop {{ h.hop_number }} ({{ h.status }}): {{ reason }}</p>
+          {% endfor %}
+        {% endfor %}
+
+        {% if relay_trust.earliest_reliable_node %}
+        {% set node = relay_trust.earliest_reliable_node %}
+        <div class="alert {{ 'alert-secondary' if node.unverified else 'alert-dark' }} mt-3 mb-0">
+          <h6 class="fw-bold mb-2">
+            {% if node.unverified %}
+              <i class="fa-solid fa-triangle-exclamation me-1"></i>Earliest Sending Node (unverified — no trusted checkpoint found)
+            {% else %}
+              <i class="fa-solid fa-circle-check me-1"></i>Earliest Reliable Sending Node
+            {% endif %}
+          </h6>
+          <p class="mb-1">
+            <strong>Earliest reliable source:</strong> {{ node.ip or 'Unknown' }},
+            {{ node.country or 'unknown country' }}{% if node.asn %}, {{ node.asn }}{% endif %}<br>
+            <strong>Confidence:</strong> {{ node.confidence }}%
+            {% if node.verified_by %}<br><span class="small text-muted">Verified by receiving server: {{ node.verified_by }}</span>{% endif %}
+          </p>
+          {% if relay_trust.trust_boundary_hop_number %}
+          <p class="small text-muted mb-0">
+            Earlier header entries (hop numbers greater than {{ relay_trust.trust_boundary_hop_number }})
+            are treated as untrusted because they appear before the first verified receiving server.
+          </p>
+          {% else %}
+          <p class="small text-muted mb-0">
+            No hop in this chain matched known/organizational mail infrastructure, so this source
+            could not be verified against a trusted checkpoint — treat it as a best-effort estimate only.
+          </p>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mb-0">No Received headers were available to reconstruct.</p>
         {% endif %}
       </div>
     </div>
