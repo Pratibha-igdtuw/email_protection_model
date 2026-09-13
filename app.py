@@ -6,6 +6,7 @@ import uuid
 import time
 import logging
 import secrets
+import concurrent.futures
 from datetime import datetime
 
 # Load variables from a local .env file (if present) into the real
@@ -199,16 +200,31 @@ def run_pipeline(raw_email_bytes):
     parsed = parser_mod.parse_email(raw_email_bytes)
     urls = parser_mod.extract_urls(parsed.get('body_plain', '') + ' ' + parsed.get('body_html', ''))
 
-    auth_result = auth_check.run_authentication_check(parsed)
-    geo_result = geoip_mod.lookup_ip(parsed.get('originating_ip'))
+    # auth_check, geoip, whois, and abuseipdb are all independent network
+    # calls -- none of them needs another's result. Run them concurrently
+    # instead of one after another: total wait becomes roughly the SLOWEST
+    # of the four (a few seconds) instead of the SUM of all four (previously
+    # ~50s in practice, dominated by WHOIS's multi-hop lookups). classify_email
+    # is CPU-bound (fast) and the local blacklist check touches the Flask-
+    # SQLAlchemy session, which isn't safe to share across threads, so both
+    # stay on the main thread as before.
+    with concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='pipeline') as pool:
+        auth_future = pool.submit(auth_check.run_authentication_check, parsed)
+        geo_future = pool.submit(geoip_mod.lookup_ip, parsed.get('originating_ip'))
+        whois_future = pool.submit(whois_lookup.lookup_domain, parsed.get('sender_domain'))
+        abuseipdb_future = pool.submit(blacklist_mod.check_abuseipdb, parsed.get('originating_ip'))
+
+        auth_result = auth_future.result()
+        geo_result = geo_future.result()
+        whois_result = whois_future.result()
+        abuseipdb_result = abuseipdb_future.result()
+
     geo_mismatch = geoip_mod.check_brand_mismatch(parsed.get('sender_domain'), geo_result)
-    whois_result = whois_lookup.lookup_domain(parsed.get('sender_domain'))
     classify_result = classifier.classify_email(parsed, urls)
 
     local_hits = blacklist_mod.check_local_blacklist(
         parsed.get('originating_ip'), parsed.get('sender_domain'), db.session, BlacklistEntry
     )
-    abuseipdb_result = blacklist_mod.check_abuseipdb(parsed.get('originating_ip'))
     phishtank_result = blacklist_mod.check_phishtank(parsed.get('sender_domain'), urls)
     bl_score, bl_reasons = blacklist_mod.compute_blacklist_score(local_hits, abuseipdb_result, phishtank_result)
 

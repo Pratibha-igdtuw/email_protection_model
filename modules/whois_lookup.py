@@ -2,6 +2,7 @@
 WHOIS lookup for sending domain - registrar, creation date.
 Newly registered domains (<30 days old) are a strong red flag for phishing.
 """
+import concurrent.futures
 from datetime import datetime, timezone
 
 try:
@@ -15,6 +16,16 @@ try:
     DATEUTIL_AVAILABLE = True
 except ImportError:
     DATEUTIL_AVAILABLE = False
+
+# python-whois sets a 10s timeout PER socket hop internally, and a single
+# lookup can involve 2-3 hops (root registry -> registrar referral ->
+# sometimes a second referral) -- so a single call can legitimately take
+# 20-30s with no way to configure that from the outside. Domain age is a
+# nice-to-have risk signal, not something worth blocking the whole analysis
+# pipeline on, so it's capped here at a hard wall-clock timeout: if WHOIS
+# hasn't answered by then, treat it as unavailable and move on.
+WHOIS_TIMEOUT_SECONDS = 6
+_whois_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='whois')
 
 
 def _first(value):
@@ -39,34 +50,48 @@ def _coerce_to_datetime(value):
     return None
 
 
+def _run_whois_query(domain):
+    """The actual blocking call, run in a worker thread so it can be
+    abandoned (from the caller's perspective) if it overruns the timeout --
+    the underlying socket call itself has no external cancel hook."""
+    w = pywhois.whois(domain)
+    creation_date = _coerce_to_datetime(_first(w.creation_date))
+    expiration_date = _first(w.expiration_date)
+
+    domain_age_days = None
+    is_newly_registered = False
+    if creation_date is not None:
+        now = datetime.now(timezone.utc) if creation_date.tzinfo else datetime.now()
+        domain_age_days = (now - creation_date).days
+        is_newly_registered = domain_age_days is not None and domain_age_days < 30
+
+    return {
+        'status': 'success',
+        'domain': domain,
+        'registrar': _first(w.registrar),
+        'creation_date': str(creation_date) if creation_date else None,
+        'expiration_date': str(expiration_date) if expiration_date else None,
+        'domain_age_days': domain_age_days,
+        'is_newly_registered': is_newly_registered,
+        'name_servers': w.name_servers if isinstance(w.name_servers, list) else ([w.name_servers] if w.name_servers else []),
+        'org': _first(getattr(w, 'org', None)),
+        'country': _first(getattr(w, 'country', None)),
+    }
+
+
 def lookup_domain(domain):
     if not domain:
         return {'status': 'no_domain'}
     if not WHOIS_AVAILABLE:
         return {'status': 'unavailable', 'message': 'python-whois not installed', 'domain': domain}
+
+    future = _whois_executor.submit(_run_whois_query, domain)
     try:
-        w = pywhois.whois(domain)
-        creation_date = _coerce_to_datetime(_first(w.creation_date))
-        expiration_date = _first(w.expiration_date)
-
-        domain_age_days = None
-        is_newly_registered = False
-        if creation_date is not None:
-            now = datetime.now(timezone.utc) if creation_date.tzinfo else datetime.now()
-            domain_age_days = (now - creation_date).days
-            is_newly_registered = domain_age_days is not None and domain_age_days < 30
-
-        return {
-            'status': 'success',
-            'domain': domain,
-            'registrar': _first(w.registrar),
-            'creation_date': str(creation_date) if creation_date else None,
-            'expiration_date': str(expiration_date) if expiration_date else None,
-            'domain_age_days': domain_age_days,
-            'is_newly_registered': is_newly_registered,
-            'name_servers': w.name_servers if isinstance(w.name_servers, list) else ([w.name_servers] if w.name_servers else []),
-            'org': _first(getattr(w, 'org', None)),
-            'country': _first(getattr(w, 'country', None)),
-        }
+        return future.result(timeout=WHOIS_TIMEOUT_SECONDS)
+    except concurrent.futures.TimeoutError:
+        # The query thread is left to finish/die on its own in the background
+        # (Python has no clean way to kill a thread mid-socket-call) -- but
+        # the analysis pipeline is no longer waiting on it.
+        return {'status': 'timeout', 'message': f'WHOIS lookup exceeded {WHOIS_TIMEOUT_SECONDS}s', 'domain': domain}
     except Exception as e:
         return {'status': 'failed', 'message': str(e), 'domain': domain}
