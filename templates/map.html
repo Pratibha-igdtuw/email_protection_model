@@ -48,6 +48,12 @@ markers.forEach(m => {
     `<b>ISP:</b> ${m.isp || '—'}<br>` +
     `<b>Country:</b> ${m.country || '—'}`
   );
+  // Hover shows the popup immediately (mouseover/mouseout), instead of
+  // requiring a click -- this restores the earlier hover-to-preview
+  // behavior. bindPopup() above still lets a click "pin" it open too
+  // (e.g. on touch devices with no hover), so nothing is lost either way.
+  circle.on('mouseover', function () { this.openPopup(); });
+  circle.on('mouseout', function () { this.closePopup(); });
   bounds.push([m.lat, m.lon]);
 });
 if (bounds.length) { map.fitBounds(bounds, {padding: [40, 40]}); }

@@ -38,6 +38,17 @@ _ANCHOR_REGEX = re.compile(r'<a\s+[^>]*href=["\']([^"\']+)["\'][^>]*>(.*?)</a>',
 _TAG_STRIP_REGEX = re.compile(r'<[^>]+>')
 
 
+def _defang(url):
+    """Renders a URL in the standard SOC/threat-intel 'defanged' form
+    (http -> hxxp, :// -> [://], . -> [.]) so it can be displayed to an
+    analyst without being clickable or auto-linkified by the browser --
+    the whole point of showing a suspected-phishing URL in a report is
+    to look at it, not to visit it. Purely cosmetic: only used for
+    display, never for any of the actual host/IP/shortener detection
+    logic below, which all runs on the real URL."""
+    return url.replace('http', 'hxxp', 1).replace('://', '[://]', 1).replace('.', '[.]')
+
+
 def _registrable_domain(hostname):
     """Rough registrable-domain approximation: last two labels, or three
     for common ccTLD-second-level patterns like .co.in / .co.uk. Good
@@ -68,7 +79,11 @@ def _find_anchor_mismatches(body_html):
         except ValueError:
             continue
         if href_host and text_host and href_host != text_host and not href_host.endswith('.' + text_host):
-            mismatches.append({'text': visible_text[:80], 'href': href[:200]})
+            mismatches.append({
+                'text': visible_text[:80],
+                'href': href[:200],
+                'href_defanged': _defang(href[:200]),
+            })
     return mismatches
 
 
@@ -134,6 +149,7 @@ def analyze_urls(urls, body_html=None):
 
         results.append({
             'url': url,
+            'defanged_url': _defang(url),
             'host': host,
             'is_ip_literal': is_ip_literal,
             'is_shortener': is_shortener,
