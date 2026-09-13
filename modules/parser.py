@@ -4,21 +4,50 @@ Parses raw email text (.eml or pasted) into a structured dict:
 headers, body (plain+html), Received chain (hop by hop), extracted IPs.
 """
 import re
+import ipaddress
+import hashlib
 import email
 from email import policy
 from email.parser import BytesParser, Parser
 
-IP_REGEX = re.compile(
-    r'\b(?:(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\.){3}'
-    r'(?:25[0-5]|2[0-4][0-9]|[01]?[0-9][0-9]?)\b'
-)
+# Loose candidate patterns -- deliberately permissive. Anything that merely
+# *looks* IPv4/IPv6-shaped gets found here; actual validity (including
+# rejecting ambiguous things like leading-zero octets, which Python's
+# ipaddress module correctly treats as invalid per CVE-2021-29921) is
+# decided by _extract_valid_ips below, not by the regex.
+IPV4_CANDIDATE_REGEX = re.compile(r'\b(?:\d{1,3}\.){3}\d{1,3}\b')
+IPV6_CANDIDATE_REGEX = re.compile(r'\b(?:[0-9a-fA-F]{0,4}:){2,7}[0-9a-fA-F]{0,4}\b')
 
-PRIVATE_IP_PREFIXES = ('10.', '172.16.', '172.17.', '172.18.', '172.19.',
-                        '172.2', '172.30.', '172.31.', '192.168.', '127.')
+
+def _extract_valid_ips(text):
+    """Find IPv4/IPv6-shaped substrings in text and keep only the ones that
+    are genuinely valid IP addresses. Real mail (especially anything
+    relayed through Google/Microsoft infrastructure) very commonly carries
+    IPv6 originating addresses -- a v4-only regex silently misses those
+    entirely, and a bare regex with no validation can also accept spurious
+    matches (digit sequences that happen to look dotted-decimal but aren't
+    really an IP) as if they were real."""
+    candidates = IPV4_CANDIDATE_REGEX.findall(text) + IPV6_CANDIDATE_REGEX.findall(text)
+    valid, seen = [], set()
+    for candidate in candidates:
+        if candidate in seen:
+            continue
+        seen.add(candidate)
+        try:
+            ipaddress.ip_address(candidate)
+            valid.append(candidate)
+        except ValueError:
+            continue  # looked IP-shaped but wasn't a real, unambiguous address
+    return valid
 
 
 def _is_private_ip(ip):
-    return ip.startswith(PRIVATE_IP_PREFIXES) or ip == '0.0.0.0'
+    try:
+        addr = ipaddress.ip_address(ip)
+        return addr.is_private or addr.is_loopback or addr.is_link_local \
+            or addr.is_reserved or addr.is_unspecified
+    except ValueError:
+        return True  # not even a valid address -- never treat as a usable public IP
 
 
 def parse_email(raw_bytes_or_str):
@@ -35,15 +64,38 @@ def parse_email(raw_bytes_or_str):
         vals = msg.get_all(key)
         headers[key] = vals if len(vals) > 1 else vals[0]
 
-    # Body extraction (plain preferred, fallback to html-stripped)
+    # Body extraction (plain preferred, fallback to html-stripped).
+    # Attachments were previously silently discarded here -- now extracted
+    # with metadata (filename/type/size/hash) for attachment_scan.py to
+    # flag dangerous file types, double extensions, etc.
     body_plain = ""
     body_html = ""
+    attachments = []
     if msg.is_multipart():
         for part in msg.walk():
+            if part.is_multipart():
+                continue
             ctype = part.get_content_type()
             disp = str(part.get('Content-Disposition') or '')
-            if 'attachment' in disp:
+            filename = part.get_filename()
+
+            # A filename being present is a more reliable attachment signal
+            # than the Content-Disposition string alone -- some phishing
+            # emails mark a file 'inline' specifically to dodge naive
+            # "if 'attachment' in disposition" checks.
+            if filename or 'attachment' in disp.lower():
+                try:
+                    payload = part.get_payload(decode=True) or b''
+                except Exception:
+                    payload = b''
+                attachments.append({
+                    'filename': filename or '(unnamed)',
+                    'content_type': ctype,
+                    'size_bytes': len(payload),
+                    'sha256': hashlib.sha256(payload).hexdigest() if payload else None,
+                })
                 continue
+
             try:
                 if ctype == 'text/plain' and not body_plain:
                     body_plain = part.get_content()
@@ -69,7 +121,7 @@ def parse_email(raw_bytes_or_str):
     hops = []
     for idx, rec in enumerate(received_headers):
         rec_str = str(rec)
-        ips_found = IP_REGEX.findall(rec_str)
+        ips_found = _extract_valid_ips(rec_str)
         public_ips = [ip for ip in ips_found if not _is_private_ip(ip)]
         ts_match = re.search(r';\s*(.+)$', rec_str)
         timestamp = ts_match.group(1).strip() if ts_match else None
@@ -96,9 +148,9 @@ def parse_email(raw_bytes_or_str):
         # fallback: scan X-Originating-IP or any public IP anywhere in headers
         xoi = headers.get('X-Originating-IP')
         if xoi:
-            m = IP_REGEX.search(str(xoi))
-            if m:
-                originating_ip = m.group(0)
+            found = _extract_valid_ips(str(xoi))
+            if found:
+                originating_ip = found[0]
 
     from_header = str(headers.get('From', ''))
     display_name_match = re.match(r'^\s*"?([^"<]*)"?\s*<', from_header)
@@ -117,6 +169,7 @@ def parse_email(raw_bytes_or_str):
         'body_plain': body_plain,
         'body_html': body_html,
         'received_chain': hops,
+        'attachments': attachments,
         'originating_ip': originating_ip,
         'message_id': str(headers.get('Message-ID', '')) or None,
         'date': str(headers.get('Date', '')) or None,

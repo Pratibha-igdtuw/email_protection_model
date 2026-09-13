@@ -7,6 +7,7 @@ from datetime import datetime, timezone
 
 try:
     import whois as pywhois
+    from whois.parser import PywhoisError
     WHOIS_AVAILABLE = True
 except ImportError:
     WHOIS_AVAILABLE = False
@@ -26,6 +27,18 @@ except ImportError:
 # hasn't answered by then, treat it as unavailable and move on.
 WHOIS_TIMEOUT_SECONDS = 6
 _whois_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='whois')
+
+# python-whois raises PywhoisError with the raw registry response text as
+# the message for a wide range of situations (unparseable response, TLD
+# quirks, and -- most commonly -- the domain simply isn't registered). The
+# raw text is often mostly registry legal boilerplate, which reads as
+# unpolished/broken if shown verbatim. These patterns identify the common
+# "not registered" case so it can be reported cleanly instead.
+_NO_MATCH_PATTERNS = (
+    'no match', 'not found', 'no data found', 'no entries found',
+    'domain not found', 'status: free', 'no object found', 'nothing found',
+)
+
 
 
 def _first(value):
@@ -87,11 +100,22 @@ def lookup_domain(domain):
 
     future = _whois_executor.submit(_run_whois_query, domain)
     try:
+
         return future.result(timeout=WHOIS_TIMEOUT_SECONDS)
     except concurrent.futures.TimeoutError:
         # The query thread is left to finish/die on its own in the background
         # (Python has no clean way to kill a thread mid-socket-call) -- but
         # the analysis pipeline is no longer waiting on it.
         return {'status': 'timeout', 'message': f'WHOIS lookup exceeded {WHOIS_TIMEOUT_SECONDS}s', 'domain': domain}
+    except PywhoisError as e:
+        text = str(e)
+        if any(p in text.lower() for p in _NO_MATCH_PATTERNS):
+            return {
+                'status': 'not_registered',
+                'message': 'No WHOIS record found for this domain -- it does not appear to be '
+                           'registered, which is itself unusual for a domain actively sending mail.',
+                'domain': domain,
+            }
+        return {'status': 'failed', 'message': text[:200] + ('...' if len(text) > 200 else ''), 'domain': domain}
     except Exception as e:
-        return {'status': 'failed', 'message': str(e), 'domain': domain}
+        return {'status': 'failed', 'message': str(e)[:200], 'domain': domain}

@@ -21,6 +21,8 @@ from flask import (Flask, render_template, request, redirect, url_for,
                     flash, send_file, jsonify, Response, abort, session)
 from flask_login import (LoginManager, login_user, logout_user, login_required,
                           current_user)
+from flask_wtf import CSRFProtect
+from flask_wtf.csrf import CSRFError
 from flask_migrate import Migrate
 from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
@@ -34,6 +36,8 @@ from modules import geoip as geoip_mod
 from modules import whois_lookup
 from modules import classifier
 from modules import blacklist as blacklist_mod
+from modules import attachment_scan
+from modules import url_scan
 from modules import risk_score
 from modules import report_gen
 from modules import clustering
@@ -116,6 +120,20 @@ app.config.from_object(get_config())
 # would reject every login/signup POST in production, since the token
 # the template renders (the custom one) doesn't match what Flask-WTF's
 # validator expects.
+
+
+@app.errorhandler(CSRFError)
+def handle_csrf_error(e):
+    """A CSRF token can go stale for entirely routine reasons -- a login tab
+    left open across a server restart, a session that expired, the back
+    button reusing an old form. None of that is an application error the
+    person did something wrong to cause, so bounce them back with a plain
+    explanation and a fresh form instead of Flask-WTF's raw 400 page."""
+    flash("Your session timed out for security reasons. Please try again.", 'error')
+    if current_user.is_authenticated:
+        return redirect(url_for('workspace'))
+    return redirect(url_for('login'))
+
 
 db.init_app(app)
 migrate = Migrate(app, db)  # `flask db migrate` / `flask db upgrade` -- see README
@@ -228,8 +246,12 @@ def run_pipeline(raw_email_bytes):
     phishtank_result = blacklist_mod.check_phishtank(parsed.get('sender_domain'), urls)
     bl_score, bl_reasons = blacklist_mod.compute_blacklist_score(local_hits, abuseipdb_result, phishtank_result)
 
+    attachment_result = attachment_scan.analyze_attachments(parsed.get('attachments'))
+    url_result = url_scan.analyze_urls(urls, parsed.get('body_html'))
+
     risk_result = risk_score.compute_combined_score(
-        classify_result, auth_result, geo_mismatch, whois_result, bl_score
+        classify_result, auth_result, geo_mismatch, whois_result, bl_score,
+        attachment_result=attachment_result, url_result=url_result,
     )
 
     return {
@@ -245,6 +267,8 @@ def run_pipeline(raw_email_bytes):
         'phishtank_result': phishtank_result,
         'blacklist_score': bl_score,
         'blacklist_reasons': bl_reasons,
+        'attachment_result': attachment_result,
+        'url_result': url_result,
         'risk_result': risk_result,
     }
 

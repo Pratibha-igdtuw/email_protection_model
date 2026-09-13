@@ -229,6 +229,45 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
             f"domain listed after the snapshot was taken. Refresh via ml_model/refresh_phishtank.py.",
             ParagraphStyle('StaleWarn', parent=normal, fontSize=8, textColor=colors.HexColor('#b45309'))))
 
+    # --- Attachments ---
+    att = case.get('attachment_result', {})
+    elements.append(Paragraph("Attachment Risk Analysis", h2))
+    if att.get('count'):
+        for a in att.get('attachments', []):
+            size_kb = round((a.get('size_bytes') or 0) / 1024, 1)
+            elements.append(Paragraph(
+                f"• {_esc(str(a.get('filename', '')))} ({_esc(str(a.get('content_type', '')))}, {size_kb} KB)",
+                normal))
+            for flag in a.get('risk_flags', []):
+                elements.append(Paragraph(f"&nbsp;&nbsp;⚠ {_esc(str(flag))}",
+                                           ParagraphStyle('AttFlag', parent=normal, fontSize=8.5,
+                                                           textColor=colors.HexColor('#b91c1c'))))
+            if a.get('sha256'):
+                elements.append(Paragraph(f"&nbsp;&nbsp;SHA-256: {_esc(a['sha256'])}",
+                                           ParagraphStyle('AttHash', parent=normal, fontSize=7.5,
+                                                           textColor=colors.HexColor('#94a3b8'))))
+    else:
+        elements.append(Paragraph("No attachments found in this email.", normal))
+
+    # --- URLs ---
+    url_r = case.get('url_result', {})
+    elements.append(Paragraph("URL Risk Analysis", h2))
+    if url_r.get('count'):
+        for u in url_r.get('urls', []):
+            elements.append(Paragraph(f"• {_esc(str(u.get('url', '')))}", normal))
+            for flag in u.get('risk_flags', []):
+                elements.append(Paragraph(f"&nbsp;&nbsp;⚠ {_esc(str(flag))}",
+                                           ParagraphStyle('UrlFlag', parent=normal, fontSize=8.5,
+                                                           textColor=colors.HexColor('#b91c1c'))))
+        for mismatch in url_r.get('anchor_mismatches', []):
+            elements.append(Paragraph(
+                f"⚠ Link text says \"{_esc(str(mismatch.get('text', '')))}\" but points to "
+                f"\"{_esc(str(mismatch.get('href', '')))}\"",
+                ParagraphStyle('AnchorMismatch', parent=normal, fontSize=8.5,
+                               textColor=colors.HexColor('#b91c1c'))))
+    else:
+        elements.append(Paragraph("No URLs found in this email.", normal))
+
     # --- Header trace ---
     elements.append(Paragraph("Full Header Relay Trace", h2))
     for hop in parsed.get('received_chain', []):

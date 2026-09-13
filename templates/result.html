@@ -35,10 +35,23 @@
     <div class="card shadow-sm h-100">
       <div class="card-body">
         <h6 class="text-muted mb-3">Score Breakdown</h6>
+        {% set breakdown_meta = {
+          'content_ai_ml': ('Content AI / ML', 30),
+          'content_nlp_cues': ('Content NLP Cues', 20),
+          'spf_dkim_dmarc_auth': ('SPF / DKIM / DMARC Auth', 30),
+          'blacklist_reputation': ('Blacklist / Reputation', 20),
+          'whois_domain_age': ('WHOIS Domain Age', 10),
+          'geo_anomaly': ('GeoIP Anomaly', 10),
+          'attachment_risk': ('Attachment Risk', 15),
+          'url_risk': ('URL Risk', 15),
+        } %}
         {% for k, v in risk.breakdown.items() %}
+        {% set meta = breakdown_meta.get(k, (k.replace('_',' ')|title, 30)) %}
+        {% set label = meta[0] %}
+        {% set max_pts = meta[1] %}
         <div class="mb-2">
-          <div class="d-flex justify-content-between small"><span>{{ k.replace('_',' ')|title }}</span><span>{{ v }} pts</span></div>
-          <div class="progress" style="height:6px;"><div class="progress-bar bg-dark" style="width:{{ (v/30*100) if v else 0 }}%"></div></div>
+          <div class="d-flex justify-content-between small"><span>{{ label }}</span><span>{{ v }} / {{ max_pts }} pts</span></div>
+          <div class="progress" style="height:6px;"><div class="progress-bar bg-dark" style="width:{{ (v/max_pts*100) if max_pts else 0 }}%"></div></div>
         </div>
         {% endfor %}
       </div>
@@ -129,10 +142,14 @@
         {% if whois_r.status == 'success' %}
         <table class="table table-sm mb-0">
           <tr><td>Registrar</td><td>{{ whois_r.registrar }}</td></tr>
-          <tr><td>Creation Date</td><td>{{ whois_r.creation_date }}</td></tr>
-          <tr><td>Domain Age</td><td>{{ whois_r.domain_age_days }} days</td></tr>
+          <tr><td>Creation Date</td>
+              <td>{{ whois_r.creation_date if whois_r.creation_date else 'Not disclosed by registry' }}</td></tr>
+          <tr><td>Domain Age</td>
+              <td>{{ (whois_r.domain_age_days ~ ' days') if whois_r.domain_age_days is not none else 'Not disclosed by registry' }}</td></tr>
           <tr><td>Newly Registered</td><td>{{ whois_r.is_newly_registered }}</td></tr>
         </table>
+        {% elif whois_r.status == 'not_registered' %}
+        <p class="text-danger mb-0"><i class="fa-solid fa-triangle-exclamation me-1"></i>{{ whois_r.message }}</p>
         {% else %}
         <p class="text-muted mb-0">{{ whois_r.message or 'WHOIS lookup unavailable.' }}</p>
         {% endif %}
@@ -173,6 +190,83 @@
             absence of a match here does not rule out a newly-listed phishing domain.
             Run <code>ml_model/refresh_phishtank.py</code> to update it.
           </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-paperclip me-2"></i>Attachment Risk Analysis</div>
+      <div class="card-body">
+        {% set att = result.attachment_result %}
+        {% if att and att.count %}
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Filename</th><th>Type</th><th>Size</th><th>SHA-256</th><th>Flags</th></tr></thead>
+            <tbody>
+              {% for a in att.attachments %}
+              <tr>
+                <td>{{ a.filename }}</td>
+                <td>{{ a.content_type }}</td>
+                <td>{{ (a.size_bytes / 1024) | round(1) }} KB</td>
+                <td><code class="small">{{ (a.sha256[:16] + '…') if a.sha256 else '—' }}</code></td>
+                <td>
+                  {% if a.risk_flags %}
+                    {% for f in a.risk_flags %}
+                    <span class="badge rounded-pill" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ f }}</span><br>
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-success small"><i class="fa-solid fa-check me-1"></i>No red flags</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0"><i class="fa-solid fa-check me-1"></i>No attachments found in this email.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-link me-2"></i>URL Risk Analysis</div>
+      <div class="card-body">
+        {% set ur = result.url_result %}
+        {% if ur and (ur.count or ur.anchor_mismatches) %}
+        {% if ur.count %}
+        <div class="table-responsive mb-2">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>URL</th><th>Flags</th></tr></thead>
+            <tbody>
+              {% for u in ur.urls %}
+              <tr>
+                <td class="text-break small">{{ u.url }}</td>
+                <td>
+                  {% if u.risk_flags %}
+                    {% for f in u.risk_flags %}
+                    <span class="badge rounded-pill" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ f }}</span><br>
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-success small"><i class="fa-solid fa-check me-1"></i>No red flags</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% for m in ur.anchor_mismatches %}
+        <p class="text-danger small mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>
+          Link text says "{{ m.text }}" but actually points to "{{ m.href }}"</p>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0"><i class="fa-solid fa-check me-1"></i>No URLs found in this email.</p>
         {% endif %}
       </div>
     </div>
