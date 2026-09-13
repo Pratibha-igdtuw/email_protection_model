@@ -142,8 +142,10 @@
         {% if whois_r.status == 'success' %}
         <table class="table table-sm mb-0">
           <tr><td>Registrar</td><td>{{ whois_r.registrar }}</td></tr>
-          <tr><td>Creation Date</td><td>{{ whois_r.creation_date }}</td></tr>
-          <tr><td>Domain Age</td><td>{{ whois_r.domain_age_days }} days</td></tr>
+          <tr><td>Creation Date</td>
+              <td>{{ whois_r.creation_date if whois_r.creation_date else 'Not disclosed by registry' }}</td></tr>
+          <tr><td>Domain Age</td>
+              <td>{{ (whois_r.domain_age_days ~ ' days') if whois_r.domain_age_days is not none else 'Not disclosed by registry' }}</td></tr>
           <tr><td>Newly Registered</td><td>{{ whois_r.is_newly_registered }}</td></tr>
         </table>
         {% elif whois_r.status == 'not_registered' %}
