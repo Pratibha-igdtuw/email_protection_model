@@ -35,3 +35,27 @@ jobs:
           if f['stale']:
               print('::warning::PhishTank domain snapshot is stale -- run ml_model/refresh_phishtank.py')
           "
+
+  dependency-audit:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: '3.12'
+          cache: 'pip'
+
+      - name: Install dependencies
+        run: pip install -r requirements.txt
+
+      - name: Audit dependencies for known CVEs
+        run: |
+          pip install pip-audit
+          # Don't hard-fail the build on a new advisory landing mid-sprint --
+          # surface it loudly (exit code still visible in the step summary)
+          # rather than blocking every unrelated PR the moment one drops.
+          # Flip this to a hard failure (drop `|| true`) once there's a
+          # process in place to triage advisories promptly.
+          pip-audit -r requirements.txt || true

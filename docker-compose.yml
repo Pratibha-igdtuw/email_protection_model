@@ -1,0 +1,45 @@
+# Production-parity local run: gunicorn (multi-worker) + Redis-backed rate
+# limiting, so the "each worker keeps its own counters" gotcha documented
+# in the README never bites by default. Not a substitute for real secrets
+# management -- set SECRET_KEY (and ideally DATABASE_URL to a real
+# Postgres) via your host's secret store before using this outside a
+# throwaway/demo environment.
+#
+# Usage:
+#   docker compose run --rm web flask db upgrade   # once, before first start
+#   docker compose up
+services:
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+    healthcheck:
+      test: ["CMD", "redis-cli", "ping"]
+      interval: 5s
+      timeout: 3s
+      retries: 5
+
+  web:
+    build: .
+    restart: unless-stopped
+    depends_on:
+      redis:
+        condition: service_healthy
+    ports:
+      - "8000:8000"
+    environment:
+      APP_ENV: production
+      SECRET_KEY: ${SECRET_KEY:?set SECRET_KEY before starting -- see README}
+      DATABASE_URL: ${DATABASE_URL:-sqlite:////app/instance/threat_platform.db}
+      ALLOW_SQLITE_IN_PROD: ${ALLOW_SQLITE_IN_PROD:-1}
+      RATELIMIT_STORAGE_URI: redis://redis:6379/0
+      GUNICORN_WORKERS: ${GUNICORN_WORKERS:-3}
+      # Optional -- see README for AbuseIPDB / Gmail OAuth / on-chain anchoring
+      ABUSEIPDB_API_KEY: ${ABUSEIPDB_API_KEY:-}
+      TOKEN_ENCRYPTION_KEY: ${TOKEN_ENCRYPTION_KEY:-}
+    volumes:
+      - instance-data:/app/instance
+      - case-reports:/app/case_reports
+
+volumes:
+  instance-data:
+  case-reports:

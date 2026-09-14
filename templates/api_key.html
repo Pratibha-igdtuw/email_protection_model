@@ -1,0 +1,55 @@
+{% extends 'base.html' %}
+{% block title %}API Key — MailFox{% endblock %}
+{% block content %}
+<div class="mb-3">
+  <h3 class="fw-bold mb-0"><i class="fa-solid fa-key me-2"></i>API Key</h3>
+  <p class="text-muted small mb-0">Authenticate external tooling (a SIEM/SOAR, a script, a scheduled job) against
+    <code>/api/cases</code> without a browser session — send it as an <code>X-API-Key</code> header.</p>
+</div>
+
+{% if new_key %}
+<div class="alert alert-warning">
+  <i class="fa-solid fa-triangle-exclamation me-1"></i>
+  <b>Copy this key now — it will not be shown again.</b>
+  <div class="d-flex align-items-center gap-2 mt-2">
+    <code class="font-mono flex-grow-1" id="new-api-key" style="word-break: break-all;">{{ new_key }}</code>
+    <button type="button" class="btn btn-sm btn-outline-secondary" onclick="navigator.clipboard.writeText(document.getElementById('new-api-key').textContent)">
+      <i class="fa-solid fa-copy"></i> Copy
+    </button>
+  </div>
+</div>
+{% endif %}
+
+<div class="card shadow-sm">
+  <div class="card-body">
+    {% if user.api_key_prefix %}
+      <p class="mb-1"><b>Status:</b> <span class="badge bg-success">Active</span></p>
+      <p class="mb-1 small text-muted">Key prefix: <code>{{ user.api_key_prefix }}…</code></p>
+      <p class="mb-3 small text-muted">Generated: {{ user.api_key_created_at.strftime('%d %b %Y, %H:%M') if user.api_key_created_at else '—' }} UTC</p>
+    {% else %}
+      <p class="mb-3"><b>Status:</b> <span class="badge bg-secondary">No active key</span></p>
+    {% endif %}
+
+    <form method="POST" action="{{ url_for('api_key_generate') }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-primary btn-sm">
+        <i class="fa-solid fa-arrows-rotate me-1"></i>{{ 'Regenerate' if user.api_key_prefix else 'Generate' }} key
+      </button>
+    </form>
+
+    {% if user.api_key_prefix %}
+    <form method="POST" action="{{ url_for('api_key_revoke') }}" class="d-inline">
+      <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+      <button type="submit" class="btn btn-outline-danger btn-sm">
+        <i class="fa-solid fa-ban me-1"></i>Revoke
+      </button>
+    </form>
+    {% endif %}
+
+    <hr>
+    <p class="small text-muted mb-1"><b>Usage:</b></p>
+    <pre class="small bg-light p-2 rounded">curl -H "X-API-Key: &lt;your key&gt;" {{ request.url_root.rstrip('/') }}{{ url_for('api_cases') }}</pre>
+    <p class="small text-muted mb-0">Regenerating or revoking immediately invalidates the previous key — only one key is active per account at a time.</p>
+  </div>
+</div>
+{% endblock %}

@@ -42,5 +42,30 @@ def test_breakdown_keys_present():
     auth = {'auth_risk_score': 10}
     result = risk_score.compute_combined_score(ml, auth, {'mismatch_detected': False}, {}, 0)
     expected_keys = {'content_ai_ml', 'content_nlp_cues', 'spf_dkim_dmarc_auth',
-                      'blacklist_reputation', 'whois_domain_age', 'geo_anomaly'}
+                      'blacklist_reputation', 'whois_domain_age', 'geo_anomaly',
+                      'attachment_risk', 'url_risk'}
     assert set(result['breakdown'].keys()) == expected_keys
+
+
+def test_attachment_and_url_risk_contribute_and_are_capped():
+    ml = {'ml_probability': 0, 'nlp_risk_score': 0}
+    auth = {'auth_risk_score': 0}
+    # Both risk scores exceed their 15-pt cap -- the combined score should
+    # only credit 15 pts each, not the raw (higher) values passed in.
+    attachment_result = {'risk_score': 40}
+    url_result = {'risk_score': 25}
+    result = risk_score.compute_combined_score(
+        ml, auth, {'mismatch_detected': False}, {}, 0,
+        attachment_result=attachment_result, url_result=url_result,
+    )
+    assert result['breakdown']['attachment_risk'] == 15.0
+    assert result['breakdown']['url_risk'] == 15.0
+    assert result['combined_score'] == 30.0
+
+
+def test_attachment_and_url_risk_default_to_zero_when_omitted():
+    ml = {'ml_probability': 0, 'nlp_risk_score': 0}
+    auth = {'auth_risk_score': 0}
+    result = risk_score.compute_combined_score(ml, auth, {'mismatch_detected': False}, {}, 0)
+    assert result['breakdown']['attachment_risk'] == 0.0
+    assert result['breakdown']['url_risk'] == 0.0

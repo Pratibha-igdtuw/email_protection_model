@@ -28,8 +28,12 @@ from flask_limiter import Limiter
 from flask_limiter.util import get_remote_address
 from werkzeug.utils import secure_filename
 
+from functools import wraps
+
+import click
+
 from config import get_config
-from models import db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToken, ChainBlock
+from models import db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToken, ChainBlock, AuditLog
 from modules import parser as parser_mod
 from modules import auth_check
 from modules import geoip as geoip_mod
@@ -190,6 +194,11 @@ def _require_login_and_csrf():
         return
 
     if not current_user.is_authenticated:
+        # API-key-eligible endpoints are meant for programmatic callers --
+        # a redirect to an HTML login page is useless to them, so they get
+        # a JSON 401 explaining how to authenticate instead.
+        if request.endpoint in API_KEY_ELIGIBLE_ENDPOINTS:
+            return jsonify({'error': 'Authentication required. Log in, or send a valid X-API-Key header.'}), 401
         return redirect(url_for('login', next=request.path))
 
     if request.method == 'POST' and app.config.get('WTF_CSRF_ENABLED', True):
@@ -201,6 +210,96 @@ def _require_login_and_csrf():
 @app.context_processor
 def _inject_csrf_token():
     return {'csrf_token': lambda: session.get('csrf_token', '')}
+
+
+# ---------------------------------------------------------------------------
+# Security response headers
+# ---------------------------------------------------------------------------
+# A forensic security tool serving its own dashboard over HTTP should not
+# skip the basic hardening headers it would flag as missing on someone
+# else's site. These are applied to every response, including error pages,
+# so a misconfigured route can't accidentally skip them.
+_CSP = (
+    "default-src 'self'; "
+    "img-src 'self' data: https://*.tile.openstreetmap.org; "
+    "style-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com https://fonts.googleapis.com; "
+    "font-src 'self' https://cdnjs.cloudflare.com https://fonts.gstatic.com; "
+    # 'unsafe-inline' here matches style-src above -- the app already ships a
+    # few inline <script> blocks and onclick/onchange handlers (login,
+    # blockchain, map, dashboard pages). Locking script-src down to strip
+    # 'unsafe-inline' is worth doing later by moving those into external
+    # files with a nonce, but that's a real refactor, not a one-line fix.
+    "script-src 'self' 'unsafe-inline' https://cdnjs.cloudflare.com; "
+    "frame-ancestors 'none'; "
+    "base-uri 'self'; "
+    "form-action 'self'"
+)
+
+
+@app.after_request
+def _set_security_headers(response):
+    response.headers.setdefault('X-Content-Type-Options', 'nosniff')
+    response.headers.setdefault('X-Frame-Options', 'DENY')
+    response.headers.setdefault('Referrer-Policy', 'strict-origin-when-cross-origin')
+    response.headers.setdefault('Permissions-Policy', 'geolocation=(), microphone=(), camera=()')
+    response.headers.setdefault('Content-Security-Policy', _CSP)
+    # HSTS only makes sense once the app is actually served over HTTPS --
+    # sending it over plain HTTP in dev would just be a lie the browser
+    # ignores anyway. ProductionConfig is expected to sit behind TLS.
+    if app.config.get('APP_ENV') == 'production':
+        response.headers.setdefault(
+            'Strict-Transport-Security', 'max-age=31536000; includeSubDomains'
+        )
+    return response
+
+
+# ---------------------------------------------------------------------------
+# Audit trail
+# ---------------------------------------------------------------------------
+
+def log_audit(action, target=None, detail=None, user=None):
+    """Records one audit event. Never raises into the caller -- an audit
+    logging failure (e.g. a transient DB hiccup) should not take down the
+    request it's describing; it's logged to the app logger instead so it's
+    still visible operationally."""
+    try:
+        entry = AuditLog(
+            user_id=(user or current_user).id if (user or current_user).is_authenticated else None,
+            action=action,
+            target=target,
+            detail=detail,
+            ip_address=request.headers.get('X-Forwarded-For', request.remote_addr),
+        )
+        db.session.add(entry)
+        db.session.commit()
+    except Exception as e:
+        db.session.rollback()
+        app.logger.error(f"Audit logging failed for action={action!r}: {e}")
+
+
+# Endpoints that accept an `X-API-Key` header as an alternative to a
+# browser session -- deliberately a narrow allow-list (not every route)
+# so a leaked/guessed key can only ever reach read-oriented API surfaces,
+# not the full interactive app.
+API_KEY_ELIGIBLE_ENDPOINTS = {'api_cases'}
+
+
+@login_manager.request_loader
+def load_user_from_api_key(req):
+    """Flask-Login calls this when there's no session cookie to resolve a
+    user from. Deliberately does NOT call login_user()/touch the session --
+    an API-key-authenticated request stays fully stateless (no Set-Cookie
+    in the response), unlike a normal browser login."""
+    if req.endpoint not in API_KEY_ELIGIBLE_ENDPOINTS:
+        return None
+    raw_key = req.headers.get('X-API-Key')
+    if not raw_key:
+        return None
+    candidate = User.query.filter_by(api_key_prefix=raw_key[:12]).first()
+    if candidate and candidate.check_api_key(raw_key):
+        log_audit('api_key_auth', detail=req.path, user=candidate)
+        return candidate
+    return None
 
 
 # Check whether the PhishTank snapshot is stale.
@@ -318,6 +417,7 @@ def signup():
             db.session.add(user)
             db.session.commit()
             login_user(user)
+            log_audit('signup')
             flash(f"Welcome, {user.full_name.split()[0]} — your workspace is ready.", 'success')
             return redirect(url_for('workspace'))
 
@@ -340,15 +440,18 @@ def login():
         if user and user.is_locked():
             flash('This account is temporarily locked due to repeated failed login attempts. '
                   f'Try again in a few minutes.', 'error')
+            log_audit('login_blocked_lockout', user=user)
         elif not user or not user.check_password(password):
             if user:
                 user.register_failed_login()
                 db.session.commit()
+                log_audit('login_failed', user=user)
             flash('Incorrect email or password.', 'error')
         else:
             user.register_successful_login()
             db.session.commit()
             login_user(user, remember=remember)
+            log_audit('login_success')
             flash(f"Welcome back, {user.full_name.split()[0]}.", 'success')
             next_page = request.args.get('next')
             return redirect(next_page or url_for('workspace'))
@@ -359,6 +462,7 @@ def login():
 @app.route('/logout')
 @login_required
 def logout():
+    log_audit('logout')
     logout_user()
     flash('You have been logged out.', 'success')
     return redirect(url_for('landing'))
@@ -454,6 +558,7 @@ def _analyze_and_render(raw_email_bytes):
         flash('Email analyzed successfully, but the PDF report could not be generated. '
               'The case is saved -- contact an admin if this persists.', 'error')
     db.session.commit()
+    log_audit('case_analyzed', target=case_ref, detail=f"severity={risk['severity']}")
 
     return render_template('result.html', case_ref=case_ref, result=result, case=case)
 
@@ -549,6 +654,7 @@ def blockchain_verify_onchain(block_index):
 @app.route('/dashboard/export.csv')
 @login_required
 def export_csv():
+    log_audit('case_export_csv')
     cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
     si = io.StringIO()
     writer = csv.writer(si)
@@ -828,6 +934,7 @@ def submit_feedback(case_ref):
     retrain_mod.add_feedback_example(case.body_text or case.subject or '', label)
     db.session.add(FeedbackLog(case_ref=case_ref, verdict=verdict))
     db.session.commit()
+    log_audit('verdict_recorded', target=case_ref, detail=verdict)
 
     flash(f'Feedback recorded ({verdict}). This example will be used next time the model is retrained.', 'success')
     return redirect(url_for('case_detail', case_ref=case_ref))
@@ -851,11 +958,110 @@ def retrain_model():
         classifier.reload_model()
         FeedbackLog.query.update({'used_in_training': True})
         db.session.commit()
+        log_audit('model_retrained', detail=f"total_samples={result['total_samples']}")
         flash(f"Model retrained on {result['total_samples']} samples "
               f"({result['feedback_samples']} from analyst feedback).", 'success')
     else:
         flash(f"Retraining skipped: {result['message']}", 'error')
     return redirect(url_for('dashboard'))
+
+
+# ---------------------------------------------------------------------------
+# API key self-service (for external tooling -- see API_KEY_ELIGIBLE_ENDPOINTS)
+# ---------------------------------------------------------------------------
+
+@app.route('/account/api-key')
+@login_required
+def api_key_settings():
+    return render_template('api_key.html', user=current_user)
+
+
+@app.route('/account/api-key/generate', methods=['POST'])
+@login_required
+@limiter.limit("10 per hour")
+def api_key_generate():
+    raw_key = current_user.generate_api_key()
+    db.session.commit()
+    log_audit('api_key_generated')
+    flash('New API key generated. Copy it now -- it will not be shown again.', 'success')
+    return render_template('api_key.html', user=current_user, new_key=raw_key)
+
+
+@app.route('/account/api-key/revoke', methods=['POST'])
+@login_required
+def api_key_revoke():
+    current_user.revoke_api_key()
+    db.session.commit()
+    log_audit('api_key_revoked')
+    flash('API key revoked. Any tooling using it will stop working immediately.', 'success')
+    return redirect(url_for('api_key_settings'))
+
+
+# ---------------------------------------------------------------------------
+# Admin: audit trail
+# ---------------------------------------------------------------------------
+
+@app.route('/admin/audit-log')
+@login_required
+def audit_log_view():
+    if not current_user.is_admin:
+        abort(404)  # 404, not 403 -- don't reveal to non-admins that the page exists
+    page = request.args.get('page', 1, type=int)
+    action_filter = request.args.get('action', '').strip()
+    query = AuditLog.query.order_by(AuditLog.created_at.desc())
+    if action_filter:
+        query = query.filter(AuditLog.action == action_filter)
+    pagination = query.paginate(page=page, per_page=50, error_out=False)
+    distinct_actions = [a[0] for a in db.session.query(AuditLog.action).distinct().order_by(AuditLog.action)]
+    return render_template('audit_log.html', pagination=pagination, entries=pagination.items,
+                            distinct_actions=distinct_actions, action_filter=action_filter)
+
+
+# ---------------------------------------------------------------------------
+# CLI: admin account management
+# ---------------------------------------------------------------------------
+# There is no seeded admin (or any seeded user) -- see README "Setup". This
+# is the supported way to get the first admin: `flask create-admin <email>`.
+# Run it in the same environment as the app (same DATABASE_URL), e.g.:
+#   docker compose run --rm web flask create-admin you@example.com
+
+@app.cli.command('create-admin')
+@click.argument('email')
+@click.option('--full-name', default=None,
+              help="Full name, only used if EMAIL doesn't have an account yet.")
+@click.option('--password', default=None,
+              help='Password for a brand-new account. Omit to be prompted -- '
+                   'safer than a flag, since flags can land in shell history.')
+def create_admin(email, full_name, password):
+    """Grant admin rights to EMAIL -- promotes the account if it already
+    exists, or creates a new admin account if it doesn't."""
+    email = email.strip().lower()
+    user = User.query.filter_by(email=email).first()
+
+    if user:
+        if user.is_admin:
+            click.echo(f"{email} is already an admin -- nothing to do.")
+            return
+        user.is_admin = True
+        db.session.commit()
+        click.echo(f"{email} promoted to admin.")
+        return
+
+    click.echo(f"No account exists for {email} yet -- creating one.")
+    if not full_name:
+        full_name = click.prompt('Full name')
+    if not password:
+        password = click.prompt('Password', hide_input=True, confirmation_prompt=True)
+
+    policy_error = _password_policy_error(password)
+    if policy_error:
+        raise click.ClickException(policy_error)
+
+    user = User(full_name=full_name, email=email, is_admin=True)
+    user.set_password(password)
+    db.session.add(user)
+    db.session.commit()
+    click.echo(f"Admin account created for {email}.")
 
 
 if __name__ == '__main__':

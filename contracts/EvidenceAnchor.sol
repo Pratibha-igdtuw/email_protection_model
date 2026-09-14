@@ -5,7 +5,7 @@ pragma solidity ^0.8.19;
 /// @notice Anchors forensic evidence block hashes on a public Ethereum-
 /// compatible chain for independent, tamper-evident timestamping.
 ///
-/// This is the "real blockchain" layer for ThreatForensicAI's evidence
+/// This is the "real blockchain" layer for MailFox's evidence
 /// ledger: modules/blockchain.py already keeps a local, append-only
 /// hash-chain in this app's own database (a genuine blockchain data
 /// structure -- linked block hashes, proof-of-work mining). That local

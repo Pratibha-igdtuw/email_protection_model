@@ -15,7 +15,7 @@
 <nav class="navbar navbar-expand-lg app-navbar sticky-top">
   <div class="container-fluid px-4">
     <a class="navbar-brand" href="{{ url_for('workspace') }}">
-      <i class="fa-solid fa-shield-halved"></i>ThreatForensic<span class="text-accent">AI</span>
+      <i class="fa-solid fa-shield-halved"></i>MailFox
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
       <span class="navbar-toggler-icon"></span>
@@ -49,6 +49,22 @@
                 <i class="fa-solid fa-table-columns me-2"></i>My cases
               </a>
             </li>
+
+            <li>
+              <a class="dropdown-item {{ 'active' if request.endpoint=='api_key_settings' }}" href="{{ url_for('api_key_settings') }}">
+                <i class="fa-solid fa-key me-2"></i>API key
+              </a>
+            </li>
+
+            {% if current_user.is_admin %}
+            <li>
+              <a class="dropdown-item {{ 'active' if request.endpoint=='audit_log_view' }}" href="{{ url_for('audit_log_view') }}">
+                <i class="fa-solid fa-clipboard-list me-2"></i>Audit log
+              </a>
+            </li>
+            {% endif %}
+
+            <li><hr class="dropdown-divider"></li>
 
             <li>
               <a class="dropdown-item" href="{{ url_for('logout') }}">

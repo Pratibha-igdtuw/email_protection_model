@@ -1,5 +1,6 @@
 from datetime import datetime
 import os
+import secrets
 from flask_sqlalchemy import SQLAlchemy
 from flask_login import UserMixin
 from werkzeug.security import generate_password_hash, check_password_hash
@@ -34,11 +35,40 @@ class User(UserMixin, db.Model):
     locked_until = db.Column(db.DateTime, nullable=True)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
 
+    # Programmatic access (e.g. a SOAR/SIEM pulling /api/cases on a schedule)
+    # without sharing a session cookie. Stored as a salted hash, same as a
+    # password -- the raw key is shown to the user exactly once, at
+    # generation time, and is never recoverable from the DB afterwards.
+    api_key_hash = db.Column(db.String(255), nullable=True)
+    api_key_prefix = db.Column(db.String(8), nullable=True)  # shown in UI so a user can tell keys apart
+    api_key_created_at = db.Column(db.DateTime, nullable=True)
+
     def set_password(self, raw_password):
         self.password_hash = generate_password_hash(raw_password)
 
     def check_password(self, raw_password):
         return check_password_hash(self.password_hash, raw_password)
+
+    def generate_api_key(self):
+        """Creates a new API key, stores only its hash, and returns the raw
+        key once. Any previously issued key stops working immediately
+        (single active key per user keeps revocation simple: regenerating
+        IS revoking)."""
+        raw_key = f"eptk_{secrets.token_urlsafe(32)}"  # eptk = Email Protection Threat Key
+        self.api_key_hash = generate_password_hash(raw_key)
+        self.api_key_prefix = raw_key[:12]
+        self.api_key_created_at = datetime.utcnow()
+        return raw_key
+
+    def check_api_key(self, raw_key):
+        if not self.api_key_hash or not raw_key:
+            return False
+        return check_password_hash(self.api_key_hash, raw_key)
+
+    def revoke_api_key(self):
+        self.api_key_hash = None
+        self.api_key_prefix = None
+        self.api_key_created_at = None
 
     LOCKOUT_THRESHOLD = 5
     LOCKOUT_DURATION_MINUTES = 15
@@ -217,6 +247,41 @@ class FeedbackLog(db.Model):
     verdict = db.Column(db.String(24))  # 'Confirmed Phishing' or 'False Positive'
     used_in_training = db.Column(db.Boolean, default=False)
     created_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+
+class AuditLog(db.Model):
+    """Append-style activity trail for the platform itself -- who signed in,
+    who ran an analysis, who changed a verdict, who exported data, who
+    triggered a retrain. Separate from the evidence hash-chain (ChainBlock,
+    below), which attests to *case* integrity; this attests to *user
+    activity*, which a forensic/security tool is expected to be able to
+    show an auditor on request (e.g. "who accessed this case and when").
+
+    Deliberately never updated or deleted through the app -- rows are only
+    ever inserted, so the log itself can't be quietly edited after the fact
+    by anything short of direct DB access."""
+    __tablename__ = 'audit_log'
+
+    id = db.Column(db.Integer, primary_key=True)
+    user_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    action = db.Column(db.String(64), nullable=False, index=True)
+    target = db.Column(db.String(255), nullable=True)  # e.g. a case_ref, or another user's email
+    detail = db.Column(db.String(512), nullable=True)
+    ip_address = db.Column(db.String(64), nullable=True)
+    created_at = db.Column(db.DateTime, default=datetime.utcnow, index=True)
+
+    user = db.relationship('User', backref=db.backref('audit_entries', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'id': self.id,
+            'user_email': self.user.email if self.user else None,
+            'action': self.action,
+            'target': self.target,
+            'detail': self.detail,
+            'ip_address': self.ip_address,
+            'created_at': self.created_at.strftime('%Y-%m-%d %H:%M:%S UTC') if self.created_at else None,
+        }
 
 
 class ChainBlock(db.Model):

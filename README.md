@@ -35,7 +35,19 @@ python app.py
 Visit **http://localhost:5000** — you'll land on the public marketing page.
 Create a free account (`/signup`) to reach the actual tool; every case,
 dashboard, and ledger view is private to the signed-in account. There's no
-seeded demo user.
+seeded demo user, and no seeded admin either — every account signs up as a
+regular user by default. To get your first admin (needed for `/admin/audit-log`
+and model retraining), run:
+
+```bash
+flask create-admin you@example.com
+```
+
+This promotes the account if it already exists, or creates a new admin
+account (prompting securely for name/password) if it doesn't. Run it in the
+same environment as the app (same `DATABASE_URL`) -- e.g.
+`docker compose run --rm web flask create-admin you@example.com` if you're
+using the Docker setup.
 
 - `/` — public landing page
 - `/signup`, `/login`, `/logout` — account creation and session management
@@ -49,7 +61,11 @@ seeded demo user.
 - `/report/<case_ref>` — download the generated PDF forensic report
 - `/blockchain` — the append-only evidence hash-chain, plus each block's
   public on-chain anchoring status (see "Real blockchain anchoring setup" below)
-- `/api/cases` — JSON list of your analyzed cases
+- `/api/cases` — JSON list of your analyzed cases (session login, or an
+  `X-API-Key` header — see "API key access" below)
+- `/account/api-key` — generate/revoke your personal API key
+- `/admin/audit-log` — admin-only activity trail (who signed in, analyzed a
+  case, changed a verdict, exported data, or retrained the model)
 
 Two ready-to-use test emails are in `sample_emails/`:
 - `phishing_sample.eml` — spoofed PayPal email with SPF/DKIM/DMARC failures,
@@ -120,10 +136,13 @@ instance/                    SQLite database (created at runtime)
 | NLP/heuristic red flags            | 20 |
 | SPF/DKIM/DMARC authentication      | 30 (highest weight — strongest spoofing signal) |
 | Blacklist/reputation                | 20 |
+| Attachment risk (dangerous/double-extension/macro files) | 15 |
+| URL risk (IP-literal, shortener, punycode, brand impersonation, anchor/href mismatch) | 15 |
 | WHOIS newly-registered domain (<30d)| +10 flat |
 | GeoIP brand/hosting mismatch        | +10 flat |
 
-Total capped at 100. Bands: 0-24 Low, 25-49 Medium, 50-74 High, 75-100 Critical.
+Raw component total can exceed 100 (150 at max); the combined score is capped
+at 100. Bands: 0-24 Low, 25-49 Medium, 50-74 High, 75-100 Critical.
 
 ## Database migrations
 
@@ -139,9 +158,10 @@ export DATABASE_URL=<your production database URL>
 flask db upgrade
 ```
 
-`migrations/versions/` currently holds a single migration that creates the
-full schema from scratch (including the blockchain ledger's `chain_blocks`
-table) — safe to run against a genuinely empty database. After changing any
+`migrations/versions/` holds the schema history, starting from a migration
+that creates the full schema from scratch (including the blockchain
+ledger's `chain_blocks` table) — safe to run against a genuinely empty
+database. After changing any
 model in `models.py`, generate the next migration the normal way:
 
 ```bash
@@ -240,6 +260,38 @@ export RATELIMIT_STORAGE_URI=redis://<host>:6379/0
 (the `redis` package is already in `requirements.txt`). `ProductionConfig`
 will warn on startup if it's still on `memory://`, same as the SQLite
 warning above.
+
+## API key access
+
+Every account can generate one personal API key from `/account/api-key` for
+calling `/api/cases` without a browser session — handy for a SIEM/SOAR or a
+scheduled script pulling case data. Send it as a header:
+
+```bash
+curl -H "X-API-Key: eptk_...yourkey..." https://your-host/api/cases
+```
+
+Only the salted hash is stored (same as a password); the raw key is shown
+once, at generation time. Regenerating or revoking immediately invalidates
+the previous key — one active key per account, so rotation is just
+"generate a new one." The key only works against `/api/cases`, not the rest
+of the app, so a leaked key can't be used to browse or change anything.
+
+## Security headers & audit trail
+
+Every response carries baseline hardening headers (`Content-Security-Policy`,
+`X-Frame-Options: DENY`, `X-Content-Type-Options: nosniff`,
+`Referrer-Policy`, `Permissions-Policy`, and HSTS once `APP_ENV=production`)
+— see `_set_security_headers` in `app.py`.
+
+Separately, an append-only `audit_log` table records who did what and when:
+signups, logins (including failed/locked-out attempts), logouts, case
+analysis, verdict changes, CSV exports, model retraining, and API key
+issuance/use/revocation. Any admin (`User.is_admin`) can review it at
+`/admin/audit-log`, filterable by action type. This is a plain activity
+log for accountability, not the tamper-evidence mechanism — that's the
+blockchain evidence ledger above, which exists specifically to make
+*case* evidence tampering detectable.
 
 ## Next steps to extend
 

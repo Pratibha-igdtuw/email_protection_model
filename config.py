@@ -14,6 +14,9 @@ INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
 
 
 class BaseConfig:
+    # Exposed on app.config so runtime code (e.g. the HSTS header in app.py)
+    # can branch on environment without re-reading the raw env var.
+    APP_ENV = os.environ.get('APP_ENV', 'development').lower()
     SECRET_KEY = os.environ.get('SECRET_KEY', 'dev-secret-change-me')
     SQLALCHEMY_TRACK_MODIFICATIONS = False
     MAX_CONTENT_LENGTH = 10 * 1024 * 1024  # 10 MB
