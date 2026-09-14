@@ -22,10 +22,24 @@ except ImportError:
 # lookup can involve 2-3 hops (root registry -> registrar referral ->
 # sometimes a second referral) -- so a single call can legitimately take
 # 20-30s with no way to configure that from the outside. Domain age is a
-# nice-to-have risk signal, not something worth blocking the whole analysis
-# pipeline on, so it's capped here at a hard wall-clock timeout: if WHOIS
-# hasn't answered by then, treat it as unavailable and move on.
-WHOIS_TIMEOUT_SECONDS = 6
+# nice-to-have risk signal (+10 flat points if newly registered), not
+# something worth blocking the whole analysis pipeline on, so it's capped
+# here at a hard wall-clock timeout: if WHOIS hasn't answered by then,
+# treat it as unavailable and move on.
+#
+# 4s specifically (not tighter) because a genuinely successful lookup for
+# a thin-registry TLD (.com/.net -- the most common case) legitimately
+# involves that 2-hop referral, and the second hop (the registrar's own
+# WHOIS server, whose speed varies a lot by registrar) commonly takes
+# 1.5-3s on its own even when nothing is wrong. A tighter cap (e.g. 2s)
+# cuts off that second hop mid-flight on a meaningful fraction of
+# domains, turning working lookups into "unavailable" rather than just
+# filtering out genuinely slow/unresponsive ones. 4s is still well within
+# the ~5s end-to-end /analyze budget (see CHANGELOG.md and README
+# "Analyze latency") since WHOIS runs concurrently with the other calls,
+# which are all capped tighter at 2s (single-request lookups, no
+# referral chain, so they don't need the extra room).
+WHOIS_TIMEOUT_SECONDS = 4
 _whois_executor = concurrent.futures.ThreadPoolExecutor(max_workers=4, thread_name_prefix='whois')
 
 # python-whois raises PywhoisError with the raw registry response text as

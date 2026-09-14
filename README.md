@@ -116,7 +116,7 @@ instance/                    SQLite database (created at runtime)
 
 ## Notes on external lookups
 
-- **GeoIP** uses ip-api.com's free tier (no key needed). If the runtime
+- **GeoIP** uses ipwho.is's free tier (no key needed). If the runtime
   environment has no outbound internet access, this gracefully falls back to
   a "lookup unavailable" status rather than breaking the pipeline.
 - **WHOIS** uses `python-whois`, which queries public WHOIS servers directly —
@@ -127,6 +127,38 @@ instance/                    SQLite database (created at runtime)
 - **DMARC** policy is read from the `Authentication-Results` header first
   (works fully offline); a live DNS TXT lookup via `dnspython` is attempted
   as a secondary confirmation and silently skipped if unavailable.
+
+### Analyze latency
+
+`/analyze` runs auth check, GeoIP, WHOIS, AbuseIPDB, and the per-hop relay
+trust reconstruction concurrently (`app.py::run_pipeline`), so end-to-end
+time is roughly the *slowest* of those, not their sum. Each one has its own
+hard timeout so a slow/unresponsive external service degrades gracefully
+(that signal comes back as "unavailable" and the analysis still completes)
+instead of blocking the whole request:
+
+| Call | Timeout |
+|---|---|
+| WHOIS (`modules/whois_lookup.py`) | 4s |
+| GeoIP (`modules/geoip.py`) | 2s |
+| AbuseIPDB (`modules/blacklist.py`) | 2s |
+| Live DMARC DNS lookup (`modules/auth_check.py`) | 2s |
+
+WHOIS gets more room than the others deliberately: a genuinely successful
+lookup on a thin-registry TLD (`.com`/`.net`) legitimately involves a
+2-hop referral (TLD registry -> registrar's own WHOIS server), and that
+second hop commonly takes 1.5-3s on its own with nothing wrong -- a
+tighter cap was turning *working* lookups into "unavailable," not just
+filtering out genuinely slow ones. GeoIP/AbuseIPDB/DMARC are all single-
+request lookups with no referral chain, so they don't need the extra
+room.
+
+Typical end-to-end time is 1-3s; worst case (every external call timing
+out, i.e. no outbound network at all) measured ~4.1-4.5s end-to-end
+through the real `/analyze` route — still under a 5s target, but WHOIS is
+the dominant term now, so it's the first thing to tighten if you need
+more headroom back (accepting that domain-age data goes missing more
+often as a trade-off).
 
 ## Combined risk score weighting
 

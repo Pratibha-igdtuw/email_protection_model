@@ -129,3 +129,46 @@ def test_create_admin_cli_rejects_weak_password_for_new_account(app):
     with app.app_context():
         from models import User
         assert User.query.filter_by(email='cliweak@example.com').first() is None
+
+
+def test_analyze_pipeline_timeouts_stay_within_5s_budget():
+    """Regression test for a real incident: /analyze took ~18s in
+    production because WHOIS/GeoIP/AbuseIPDB/DMARC-DNS timeouts were
+    generous (6s/4s/4s/3s), and the concurrent pipeline's wall-clock time
+    is bounded by whichever call is slowest. All four calls run
+    concurrently (see app.py::run_pipeline), so the design invariant is
+    "the largest single timeout, not the sum, stays under the ~5s
+    end-to-end target" -- pinning each one individually would fight a
+    deliberate later change (WHOIS was intentionally raised from 2s to 4s
+    after 2s was cutting off genuinely-succeeding 2-hop referral lookups,
+    not just slow ones -- see README "Analyze latency"). If any of these
+    genuinely needs to grow further, update this test deliberately rather
+    than letting the ceiling drift back toward the original incident."""
+    import inspect
+
+    from modules import whois_lookup, geoip, blacklist, auth_check
+
+    geoip_default = inspect.signature(geoip.lookup_ip).parameters['timeout'].default
+    abuseipdb_default = inspect.signature(blacklist.check_abuseipdb).parameters['timeout'].default
+    dmarc_source = inspect.getsource(auth_check.check_dmarc_dns)
+    m = re.search(r'lifetime=(\d+)', dmarc_source)
+    dmarc_timeout = int(m.group(1)) if m else None
+
+    # Individual sanity bounds -- none of the single-request lookups
+    # (GeoIP/AbuseIPDB/DMARC) needs WHOIS's multi-hop-referral slack.
+    assert geoip_default <= 2
+    assert abuseipdb_default <= 2
+    assert dmarc_timeout is not None and dmarc_timeout <= 2
+    assert whois_lookup.WHOIS_TIMEOUT_SECONDS <= 4
+
+    # The actual invariant that matters: since these run concurrently,
+    # end-to-end worst case is the MAX of the four, not their sum. Leave
+    # real headroom under 5s for local processing (classify, blacklist,
+    # attachment/url scan, risk score, chain-of-custody + PDF generation)
+    # and request/DB overhead, which measured well under 0.5s combined.
+    worst_case = max(whois_lookup.WHOIS_TIMEOUT_SECONDS, geoip_default, abuseipdb_default, dmarc_timeout)
+    assert worst_case <= 4.5, (
+        f"largest single pipeline timeout is {worst_case}s -- concurrent "
+        f"pipeline wall-clock time is bounded by this, not the sum, so "
+        f"this alone would eat most/all of the ~5s /analyze budget"
+    )

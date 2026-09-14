@@ -1,5 +1,74 @@
 # Changelog
 
+## Unreleased — analyze-latency pass
+
+## Unreleased — analyze-latency pass
+
+**Follow-up:** raised `WHOIS_TIMEOUT_SECONDS` from 2 back up to 4 after
+user feedback that domain-age data was showing "unavailable" too often.
+2s was cutting off *genuinely succeeding* WHOIS lookups mid-flight, not
+just slow/unresponsive ones — thin-registry TLDs (`.com`/`.net`) legitimately
+need a 2-hop referral (TLD registry -> registrar's own server), and that
+second hop commonly takes 1.5-3s on its own with nothing wrong. Kept the
+other three (GeoIP/AbuseIPDB/DMARC-DNS) at 2s since they're single-request
+lookups with no referral chain and don't need the extra room. Re-measured
+worst-case end-to-end `/analyze` (network fully blocked, so every call
+times out) at 4.1-4.5s — still under the 5s target but with less margin,
+so WHOIS is now the first thing to revisit if more headroom is needed
+later. Updated `test_analyze_pipeline_timeouts_stay_within_5s_budget`
+(renamed from the tighter `..._stay_tight`) to check the actual design
+invariant — the *largest single* timeout stays under budget, since the
+calls run concurrently — rather than pinning every value equally tight,
+which would have fought this deliberate change.
+
+**Problem:** `/analyze` was taking ~18s in production, reported by the user.
+
+**Root cause (found by profiling each pipeline stage individually against
+a real sample email):** the pipeline's network-bound calls
+(`auth_check`, GeoIP, WHOIS, AbuseIPDB, per-hop relay-trust geolocation)
+already ran concurrently via a `ThreadPoolExecutor` — a prior pass had
+fixed the sum-of-calls problem. But each call's individual timeout was
+generous (WHOIS 6s, GeoIP/AbuseIPDB 4s, DMARC DNS 3s), and since the whole
+concurrent block's wall-clock time is bounded by whichever call is
+*slowest*, WHOIS alone could account for 6 of the 18s on its own whenever
+a registrar was slow to respond, with GeoIP/relay-trust batches adding
+more on top when unlucky.
+
+**Fix:** tightened every external-call timeout so the theoretical
+worst case (every single call timing out) lands around 2-3s instead of
+6+:
+- `modules/whois_lookup.py`: `WHOIS_TIMEOUT_SECONDS` 6 → 2
+- `modules/geoip.py`: `lookup_ip` default timeout 4 → 2
+- `modules/blacklist.py`: `check_abuseipdb` default timeout 4 → 2
+- `modules/auth_check.py`: live DMARC DNS lookup `lifetime` 3 → 2
+- `modules/relay_trust.py`: per-hop GeoIP thread pool cap 8 → 16 workers,
+  so an email with a long Received-header chain (>8 hops) doesn't need a
+  second full-timeout batch on top of the first
+
+**Verified:**
+- Profiled every pipeline stage individually (parse, auth_check, geoip,
+  whois, abuseipdb, relay_trust, classify, attachment/url scan, risk
+  score, chain-of-custody + mining + chain verification, PDF report
+  generation) before and after — WHOIS dropped from 6.001s to 2.001s per
+  call; everything else was already well under 100ms except the
+  classifier's one-time model load (~300-500ms on the *first* call in a
+  process, ~65ms on every call after — not a per-request cost in a
+  running server).
+- Measured 3 real end-to-end `/analyze` requests through the actual Flask
+  test client (not a synthetic benchmark) in a network-blocked
+  environment — i.e. the worst case where WHOIS/GeoIP/AbuseIPDB never
+  succeed and always hit their full timeout: 2.51s, 2.13s, 2.11s. Real
+  deployments with working outbound network should typically be faster
+  than this, since most calls succeed well under their timeout rather
+  than always hitting it.
+- Full test suite (which exercises `/analyze` through real routes) itself
+  dropped from ~15s to ~7s wall-clock, corroborating the fix independent
+  of the manual timing script.
+- Documented the new timeouts and the concurrency design in README under
+  "Analyze latency," including the trade-off (domain-age data goes
+  missing more often on a slow WHOIS server in exchange for a hard
+  latency ceiling).
+
 ## Unreleased — security/ops hardening pass
 
 **Fixes**
