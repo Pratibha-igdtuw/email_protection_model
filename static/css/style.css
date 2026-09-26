@@ -233,6 +233,8 @@ textarea.form-control { line-height: 1.5; }
 .app-navbar .nav-link:hover { background: var(--surface-sunk); color: var(--ink-900) !important; }
 .app-navbar .nav-link.active { background: var(--brand-light); color: var(--brand-dark) !important; }
 .app-navbar .navbar-toggler { border-color: var(--border); }
+.app-navbar .nav-link.dropdown-toggle::after { vertical-align: 0.15em; margin-left: 0.4rem; }
+.app-navbar .dropdown-menu .dropdown-item.active { background: var(--brand-light); color: var(--brand-dark) !important; }
 
 .user-menu-toggle {
   display: flex;
