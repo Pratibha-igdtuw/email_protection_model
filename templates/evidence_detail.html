@@ -1,0 +1,87 @@
+{% extends 'base.html' %}
+{% block title %}{{ item.evidence_ref }} — Evidence Detail{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-0">{{ item.evidence_ref }}</h3>
+    <span class="badge bg-secondary mt-2">{{ item.evidence_type }}</span>
+    {% if verified %}
+    <span class="badge severity-badge severity-low mt-2"><i class="fa-solid fa-check me-1"></i>Integrity Verified</span>
+    {% else %}
+    <span class="badge severity-badge severity-critical mt-2"><i class="fa-solid fa-triangle-exclamation me-1"></i>Integrity Check Failed</span>
+    {% endif %}
+  </div>
+  <div class="d-flex gap-2">
+    <a href="{{ url_for('blockchain_ledger') }}" class="btn btn-outline-dark"><i class="fa-solid fa-link me-1"></i>View on Blockchain Ledger</a>
+    <a href="{{ url_for('evidence_list') }}" class="btn btn-secondary">Back to Evidence</a>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header">Evidence Summary</div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <tr><td>Original filename</td><td>{{ item.original_filename }}</td></tr>
+          <tr><td>File size</td><td>{{ item.file_size }} bytes</td></tr>
+          <tr><td>MIME type</td><td>{{ item.mime_type or '—' }}</td></tr>
+          <tr><td>Linked case</td><td>
+            {% if item.linked_case_ref %}<a href="{{ url_for('case_detail', case_ref=item.linked_case_ref) }}"><code>{{ item.linked_case_ref }}</code></a>
+            {% else %}<span class="text-muted">Not linked</span>{% endif %}
+          </td></tr>
+          <tr><td>Ingested</td><td>{{ item.uploaded_at.strftime('%d %b %Y, %H:%M') }}</td></tr>
+          <tr><td>SHA-256 (at ingestion)</td><td class="small font-mono">{{ item.sha256 }}</td></tr>
+          <tr><td>SHA-256 (recomputed now)</td><td class="small font-mono">{{ current_hash or 'file not found' }}</td></tr>
+        </table>
+        {% if item.notes %}
+        <hr>
+        <p class="small text-muted mb-1">Notes:</p>
+        <p class="small mb-0">{{ item.notes }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm">
+      <div class="card-header">Extracted Metadata</div>
+      <div class="card-body">
+        {% if metadata %}
+        <table class="table table-sm mb-0">
+          {% for k, v in metadata.items() %}
+          {% if k != 'exif' %}
+          <tr><td class="text-capitalize">{{ k.replace('_',' ') }}</td><td class="small">{{ v }}</td></tr>
+          {% endif %}
+          {% endfor %}
+        </table>
+        {% if metadata.exif %}
+        <p class="small text-muted mt-3 mb-1">EXIF tags:</p>
+        <table class="table table-sm mb-0">
+          {% for k, v in metadata.exif.items() %}
+          <tr><td class="small">{{ k }}</td><td class="small font-mono">{{ v }}</td></tr>
+          {% endfor %}
+        </table>
+        {% endif %}
+        {% else %}
+        <p class="text-muted small mb-0">No metadata extracted for this evidence type.</p>
+        {% endif %}
+      </div>
+    </div>
+
+    {% if block %}
+    <div class="card shadow-sm mt-3">
+      <div class="card-header"><i class="fa-solid fa-link me-2"></i>Blockchain Block</div>
+      <div class="card-body">
+        <table class="table table-sm mb-0">
+          <tr><td>Block #</td><td>{{ block.block_index }}</td></tr>
+          <tr><td>Block hash</td><td class="small font-mono">{{ block.block_hash }}</td></tr>
+          <tr><td>Previous hash</td><td class="small font-mono">{{ block.previous_hash }}</td></tr>
+          <tr><td>Mined</td><td>{{ block.timestamp.strftime('%d %b %Y, %H:%M') if block.timestamp else '—' }}</td></tr>
+        </table>
+      </div>
+    </div>
+    {% endif %}
+  </div>
+</div>
+{% endblock %}

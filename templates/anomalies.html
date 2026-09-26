@@ -1,0 +1,50 @@
+{% extends 'base.html' %}
+{% block title %}Anomaly Detection — MailFox{% endblock %}
+{% block content %}
+<h3 class="fw-bold mb-1">Cross-Case Anomaly Detection</h3>
+<p class="text-muted mb-4">Statistical outliers across your whole case history — a sudden volume spike from a domain/region, or a case arriving at an unusual hour for its sender — things no single-email check can see.</p>
+
+{% if total == 0 %}
+<div class="card shadow-sm"><div class="card-body text-center text-muted py-5">
+  No anomalies detected{% if case_count < 5 %} yet — this needs a bit more case history (currently {{ case_count }} case{{ 's' if case_count != 1 }}) before patterns are statistically meaningful{% endif %}.
+</div></div>
+{% endif %}
+
+{% if anomalies.volume_by_domain or anomalies.volume_by_country %}
+<h6 class="text-muted mb-2 mt-2"><i class="fa-solid fa-chart-line me-1"></i>Volume Spikes</h6>
+{% for a in anomalies.volume_by_domain + anomalies.volume_by_country %}
+<div class="card shadow-sm mb-2 anomaly-card">
+  <div class="card-body py-3">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+      <div>
+        <span class="badge bg-dark me-2">{{ a.type }}</span>
+        <strong>{{ a.group }}</strong>
+      </div>
+      {% if a.z_score is not none %}
+      <span class="badge severity-badge severity-medium">z = {{ a.z_score }}</span>
+      {% endif %}
+    </div>
+    <p class="small text-muted mb-0 mt-2">{{ a.description }}</p>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+
+{% if anomalies.timing %}
+<h6 class="text-muted mb-2 mt-4"><i class="fa-solid fa-clock me-1"></i>Unusual Sending-Time Patterns</h6>
+{% for a in anomalies.timing %}
+<div class="card shadow-sm mb-2 anomaly-card timing">
+  <div class="card-body py-3">
+    <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+      <div>
+        <span class="badge bg-dark me-2">{{ a.type }}</span>
+        <strong>{{ a.group }}</strong>
+      </div>
+      <a href="{{ url_for('case_detail', case_ref=a.case_ref) }}" class="small"><code>{{ a.case_ref }}</code></a>
+    </div>
+    <p class="small text-muted mb-0 mt-2">{{ a.description }}</p>
+  </div>
+</div>
+{% endfor %}
+{% endif %}
+{% endblock %}

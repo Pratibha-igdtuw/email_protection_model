@@ -1,0 +1,42 @@
+{% extends 'base.html' %}
+{% block title %}Evidence — MailFox{% endblock %}
+{% block content %}
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-1">Evidence</h3>
+    <p class="text-muted mb-0">All ingested evidence — emails, SMS exports, chat logs, images, and other files.</p>
+  </div>
+  <a href="{{ url_for('evidence_upload') }}" class="btn btn-primary"><i class="fa-solid fa-plus me-1"></i>Ingest Evidence</a>
+</div>
+
+{% if not items %}
+<div class="card shadow-sm"><div class="card-body text-center text-muted py-5">
+  No evidence ingested yet. Emails analyzed through the normal Analyze flow already get a SHA-256 + blockchain record —
+  use <a href="{{ url_for('evidence_upload') }}">Ingest Evidence</a> for anything else: SMS exports, chat logs, screenshots, other files.
+</div></div>
+{% else %}
+<div class="card shadow-sm">
+  <div class="table-responsive">
+    <table class="table table-sm mb-0 align-middle">
+      <thead><tr><th>Evidence Ref</th><th>Type</th><th>Filename</th><th>Linked Case</th><th>SHA-256</th><th>Ingested</th></tr></thead>
+      <tbody>
+      {% for item in items %}
+        <tr>
+          <td><a href="{{ url_for('evidence_detail', evidence_ref=item.evidence_ref) }}"><code>{{ item.evidence_ref }}</code></a></td>
+          <td><span class="badge bg-secondary">{{ item.evidence_type }}</span></td>
+          <td class="text-truncate" style="max-width:220px;">{{ item.original_filename }}</td>
+          <td>
+            {% if item.linked_case_ref %}
+            <a href="{{ url_for('case_detail', case_ref=item.linked_case_ref) }}"><code>{{ item.linked_case_ref }}</code></a>
+            {% else %}<span class="text-muted">—</span>{% endif %}
+          </td>
+          <td class="small font-mono">{{ item.sha256[:16] }}…</td>
+          <td class="small">{{ item.uploaded_at.strftime('%d %b, %H:%M') }}</td>
+        </tr>
+      {% endfor %}
+      </tbody>
+    </table>
+  </div>
+</div>
+{% endif %}
+{% endblock %}

@@ -129,6 +129,16 @@ class Case(db.Model):
     evidence_sha256 = db.Column(db.String(64))
     hash_generated_at = db.Column(db.DateTime)
 
+    # Incident-reconstruction timeline (modules/timeline.py) needs to know,
+    # after the fact, whether attachment/URL scanning flagged anything --
+    # those results only used to live in the in-memory pipeline dict and
+    # were never persisted, so the timeline couldn't show them for a case
+    # reopened later. Stores the human-readable flag strings themselves
+    # (empty/NULL means nothing was flagged), not just a boolean, so the
+    # timeline has something to actually say.
+    attachment_flags = db.Column(db.Text, nullable=True)
+    url_flags = db.Column(db.Text, nullable=True)
+
     # Self-improving feedback loop
     analyst_verdict = db.Column(db.String(24), default='Unreviewed')  # Unreviewed / Confirmed Phishing / False Positive
     body_text = db.Column(db.Text)  # stored for retraining on feedback
@@ -326,4 +336,51 @@ class ChainBlock(db.Model):
             'onchain_status': self.onchain_status,
             'onchain_tx_hash': self.onchain_tx_hash,
             'onchain_network': self.onchain_network,
+        }
+
+
+class Evidence(db.Model):
+    """Multi-source evidence ingestion -- previously /analyze only ever
+    accepted a raw .eml/.txt email. This is the generic counterpart: an
+    SMS export, a chat log, a screenshot/image, or any other file,
+    ingested as first-class forensic evidence. Every item gets a SHA-256
+    hash and lightweight metadata extraction (see
+    modules/evidence_ingest.py), and is mined into the SAME append-only
+    hash chain used for analyzed emails (modules/blockchain.py) --
+    evidence_ref stands in for case_ref there, so it's one evidence
+    ledger, not two parallel ones.
+
+    Optionally linked to an existing Case (e.g. "the SMS that led to
+    this phishing email") via linked_case_ref, but stands on its own
+    otherwise -- most evidence items won't have a matching email case.
+    """
+    __tablename__ = 'evidence_items'
+
+    id = db.Column(db.Integer, primary_key=True)
+    owner_id = db.Column(db.Integer, db.ForeignKey('users.id'), nullable=True, index=True)
+    evidence_ref = db.Column(db.String(32), unique=True, nullable=False)
+    evidence_type = db.Column(db.String(24), nullable=False)  # email / sms_export / chat_log / image / file
+    original_filename = db.Column(db.String(512))
+    stored_path = db.Column(db.String(512))
+    file_size = db.Column(db.Integer)
+    mime_type = db.Column(db.String(128))
+    sha256 = db.Column(db.String(64), nullable=False)
+    metadata_json = db.Column(db.Text)  # JSON blob: EXIF / text stats / size+mime, per evidence_type
+    linked_case_ref = db.Column(db.String(32), nullable=True, index=True)
+    notes = db.Column(db.Text)
+    uploaded_at = db.Column(db.DateTime, default=datetime.utcnow)
+
+    owner = db.relationship('User', backref=db.backref('evidence_items', lazy='dynamic'))
+
+    def to_dict(self):
+        return {
+            'evidence_ref': self.evidence_ref,
+            'evidence_type': self.evidence_type,
+            'original_filename': self.original_filename,
+            'file_size': self.file_size,
+            'mime_type': self.mime_type,
+            'sha256': self.sha256,
+            'linked_case_ref': self.linked_case_ref,
+            'notes': self.notes,
+            'uploaded_at': self.uploaded_at.strftime('%Y-%m-%d %H:%M') if self.uploaded_at else None,
         }
