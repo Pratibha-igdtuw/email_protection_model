@@ -17,6 +17,15 @@
   </div>
 </div>
 
+{% if narrative %}
+<div class="card shadow-sm mb-3 border-0" style="background:#f8fafc;">
+  <div class="card-body">
+    <div class="small text-muted fw-semibold mb-2"><i class="fa-solid fa-file-lines me-1"></i>Case Narrative</div>
+    <p class="mb-0">{{ narrative }}</p>
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="card shadow-sm">
@@ -47,10 +56,17 @@
     <div class="card shadow-sm">
       <div class="card-header">Extracted Metadata</div>
       <div class="card-body">
+        {% if metadata.fraud_likelihood_pct is defined %}
+        <div class="d-flex align-items-center gap-2 mb-3">
+          <span class="small text-muted fw-semibold"><i class="fa-solid fa-robot me-1"></i>AI fraud-likelihood scan:</span>
+          {% set fl = metadata.fraud_likelihood_pct %}
+          <span class="badge severity-badge severity-{{ 'critical' if fl >= 70 else 'high' if fl >= 40 else 'low' }}">{{ fl }}%</span>
+        </div>
+        {% endif %}
         {% if metadata %}
         <table class="table table-sm mb-0">
           {% for k, v in metadata.items() %}
-          {% if k != 'exif' %}
+          {% if k not in ['exif', 'flags', 'detected_phone_numbers', 'ai_flags'] %}
           <tr><td class="text-capitalize">{{ k.replace('_',' ') }}</td><td class="small">{{ v }}</td></tr>
           {% endif %}
           {% endfor %}
@@ -62,6 +78,24 @@
           <tr><td class="small">{{ k }}</td><td class="small font-mono">{{ v }}</td></tr>
           {% endfor %}
         </table>
+        {% endif %}
+        {% if metadata.detected_phone_numbers %}
+        <p class="small text-muted mt-3 mb-1">Detected phone numbers:</p>
+        <p class="small mb-0">
+          {% for p in metadata.detected_phone_numbers %}<span class="badge bg-light text-dark border me-1 mb-1">{{ p }}</span>{% endfor %}
+        </p>
+        {% endif %}
+        {% if metadata.flags %}
+        <p class="small text-muted mt-3 mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>Tampering flags:</p>
+        {% for f in metadata.flags %}
+        <span class="badge rounded-pill d-block text-start mb-1" style="background:#fee2e2;color:#b91c1c;font-weight:500;white-space:normal;">{{ f }}</span>
+        {% endfor %}
+        {% endif %}
+        {% if metadata.ai_flags %}
+        <p class="small text-muted mt-3 mb-1"><i class="fa-solid fa-robot me-1"></i>AI content-risk flags:</p>
+        {% for f in metadata.ai_flags %}
+        <span class="badge rounded-pill d-block text-start mb-1" style="background:#fff7ed;color:#9a3412;font-weight:500;white-space:normal;">{{ f }}</span>
+        {% endfor %}
         {% endif %}
         {% else %}
         <p class="text-muted small mb-0">No metadata extracted for this evidence type.</p>

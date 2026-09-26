@@ -3,7 +3,7 @@
 <head>
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
-<title>{% block title %}AI Email Threat Detection & Forensic Intelligence{% endblock %}</title>
+<title>{% block title %}FORENSIQ — AI-Powered Digital Forensics Investigation Platform{% endblock %}</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link href="https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@500;600;700&family=Inter:wght@400;500;600;700&family=IBM+Plex+Mono:wght@400;500&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
@@ -14,8 +14,8 @@
 <body>
 <nav class="navbar navbar-expand-lg app-navbar sticky-top">
   <div class="container-fluid px-4">
-    <a class="navbar-brand" href="{{ url_for('workspace') }}">
-      <i class="fa-solid fa-shield-halved"></i>MailFox
+    <a class="navbar-brand" href="{{ url_for('overview') }}">
+      <i class="fa-solid fa-shield-halved"></i>FORENSIQ
     </a>
     <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
       <span class="navbar-toggler-icon"></span>
@@ -40,6 +40,7 @@
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-2"></i>Connect Mailbox</a></li>
           </ul>
         </li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='overview' }}" href="{{ url_for('overview') }}"><i class="fa-solid fa-house me-1"></i>Overview</a></li>
 
         {% set evidence_endpoints = ['evidence_list','evidence_upload','evidence_detail','blockchain_ledger'] %}
         <li class="nav-item dropdown">
@@ -47,8 +48,37 @@
             <i class="fa-solid fa-box-archive me-1"></i>Evidence
           </a>
           <ul class="dropdown-menu">
-            <li><a class="dropdown-item {{ 'active' if request.endpoint in ['evidence_list','evidence_upload','evidence_detail'] }}" href="{{ url_for('evidence_list') }}"><i class="fa-solid fa-box-archive me-2"></i>Evidence</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='evidence_upload' }}" href="{{ url_for('evidence_upload') }}"><i class="fa-solid fa-upload me-2"></i>Ingest Evidence</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint in ['evidence_list','evidence_detail'] }}" href="{{ url_for('evidence_list') }}"><i class="fa-solid fa-box-archive me-2"></i>All Evidence</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='blockchain_ledger' }}" href="{{ url_for('blockchain_ledger') }}"><i class="fa-solid fa-link me-2"></i>Evidence Ledger</a></li>
+          </ul>
+        </li>
+
+        {% set investigate_endpoints = ['dashboard','threat_map','threat_clusters','threat_anomalies','correlation_graph'] %}
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in investigate_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fa-solid fa-table-columns me-1"></i>Investigate
+          </a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='correlation_graph' }}" href="{{ url_for('correlation_graph') }}"><i class="fa-solid fa-circle-nodes me-2"></i>Correlation Graph</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_clusters' }}" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project me-2"></i>Clusters (Cases + Evidence)</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_anomalies' }}" href="{{ url_for('threat_anomalies') }}"><i class="fa-solid fa-chart-line me-2"></i>Anomalies (Cases + Evidence)</a></li>
+            <li><hr class="dropdown-divider"></li>
+            <li><h6 class="dropdown-header">Email Cases</h6></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns me-2"></i>Case Dashboard</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_map' }}" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia me-2"></i>Case Map</a></li>
+          </ul>
+        </li>
+
+        {% set analyze_endpoints = ['index','workspace','check_number','connect_mailbox'] %}
+        <li class="nav-item dropdown">
+          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in analyze_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+            <i class="fa-solid fa-envelope me-1"></i>Email Tools
+          </a>
+          <ul class="dropdown-menu">
+            <li><a class="dropdown-item {{ 'active' if request.endpoint in ['index','workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-2"></i>Analyze an Email</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-2"></i>Connect Mailbox</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-2"></i>Check a Call/Number</a></li>
           </ul>
         </li>
 

@@ -212,6 +212,67 @@ def explain_saved_case(case):
     return {'ml_explanation': ml_explanation, 'red_flags': red_flags}
 
 
+def classify_text_fragment(text, urls=None):
+    """AI/NLP fraud-likelihood scan for evidence types that have no email
+    headers to work with -- SMS exports and chat logs. Previously these
+    two evidence types (out of five) got zero content analysis at
+    ingestion, just line/char counts, even though smishing/scam-chat text
+    uses the same urgency-language + suspicious-link playbook the trained
+    phishing classifier and NLP cues already catch for email. Reuses both:
+    the same trained model (text-only, so it doesn't need email headers)
+    plus detect_urgency_language()/detect_suspicious_links(). Skips the
+    two checks that are inherently email-specific (display-name mismatch,
+    lookalike sender domain), since SMS/chat evidence has no sender
+    domain to check.
+
+    Returns a fraud_likelihood_pct (0-100) plus the flags that drove it,
+    in the same spirit as classify_email()'s red_flags/nlp_risk_score but
+    scoped to what's actually available for this evidence type.
+    """
+    urls = urls or []
+    text = text or ''
+
+    model = _get_model()
+    if model is not None and text.strip():
+        try:
+            proba = model.predict_proba([text])[0]
+            classes = list(model.classes_)
+            phishing_idx = classes.index(1) if 1 in classes else -1
+            ml_probability = round(proba[phishing_idx] * 100, 1) if phishing_idx >= 0 else 0.0
+        except Exception:
+            ml_probability = 0.0
+    else:
+        ml_probability = 0.0
+
+    urgency_hits = detect_urgency_language(text)
+    suspicious_links = detect_suspicious_links(urls)
+
+    flags = []
+    nlp_score = 0
+    if urgency_hits:
+        flags.append(f"Urgency/social-engineering language detected: {', '.join(urgency_hits[:5])}")
+        nlp_score += min(3 + len(urgency_hits), 15)
+    if suspicious_links:
+        flags.extend(suspicious_links)
+        nlp_score += min(5 * len(suspicious_links), 15)
+    nlp_score = min(nlp_score, 30)
+
+    # Same two-signal blend as the email path (trained model + rule-based
+    # cues), just re-weighted for the smaller cue set available here.
+    if model is not None:
+        fraud_likelihood = round(min(100.0, ml_probability * 0.6 + (nlp_score / 30 * 100) * 0.4), 1)
+    else:
+        fraud_likelihood = round(min(100.0, nlp_score / 30 * 100), 1)
+
+    return {
+        'fraud_likelihood_pct': fraud_likelihood,
+        'ml_probability': ml_probability,
+        'flags': flags,
+        'urgency_phrases_found': urgency_hits,
+        'suspicious_link_count': len(suspicious_links),
+    }
+
+
 def classify_email(parsed_email, urls):
     """
     Returns:

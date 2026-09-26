@@ -8,6 +8,7 @@ import time
 import logging
 import secrets
 import concurrent.futures
+from collections import defaultdict
 from datetime import datetime
 
 # Load variables from a local .env file (if present) into the real
@@ -61,6 +62,8 @@ from modules import phone_reputation
 from modules import web_corroboration
 from modules import link_preview
 from modules import site_verification
+from modules import correlation_graph as correlation_graph_mod
+from modules import case_narrative
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
@@ -147,7 +150,7 @@ def handle_csrf_error(e):
     explanation and a fresh form instead of Flask-WTF's raw 400 page."""
     flash("Your session timed out for security reasons. Please try again.", 'error')
     if current_user.is_authenticated:
-        return redirect(url_for('workspace'))
+        return redirect(url_for('overview'))
     return redirect(url_for('login'))
 
 
@@ -401,7 +404,7 @@ def run_pipeline(raw_email_bytes):
 @app.route('/')
 def landing():
     if current_user.is_authenticated:
-        return redirect(url_for('workspace'))
+        return redirect(url_for('overview'))
     return render_template('landing.html')
 
 
@@ -409,7 +412,7 @@ def landing():
 @limiter.limit("10 per hour")
 def signup():
     if current_user.is_authenticated:
-        return redirect(url_for('workspace'))
+        return redirect(url_for('overview'))
 
     form = {'full_name': '', 'email': '', 'organization': ''}
     if request.method == 'POST':
@@ -438,7 +441,7 @@ def signup():
             login_user(user)
             log_audit('signup')
             flash(f"Welcome, {user.full_name.split()[0]} — your workspace is ready.", 'success')
-            return redirect(url_for('workspace'))
+            return redirect(url_for('overview'))
 
     return render_template('signup.html', form=form)
 
@@ -447,7 +450,7 @@ def signup():
 @limiter.limit("15 per minute")
 def login():
     if current_user.is_authenticated:
-        return redirect(url_for('workspace'))
+        return redirect(url_for('overview'))
 
     email = ''
     if request.method == 'POST':
@@ -473,7 +476,7 @@ def login():
             log_audit('login_success')
             flash(f"Welcome back, {user.full_name.split()[0]}.", 'success')
             next_page = request.args.get('next')
-            return redirect(next_page or url_for('workspace'))
+            return redirect(next_page or url_for('overview'))
 
     return render_template('login.html', email=email)
 
@@ -593,16 +596,16 @@ def analyze():
     return _analyze_and_render(raw_email_bytes)
 
 
-def _analyze_and_render(raw_email_bytes):
-    try:
-        result = run_pipeline(raw_email_bytes)
-    except Exception as e:
-        flash(f'Failed to parse/analyze email: {e}', 'error')
-        return redirect(url_for('workspace'))
-
+def _create_case_from_email_bytes(raw_email_bytes, result):
+    """Runs the shared Case-creation half of email analysis: saves the raw
+    .eml, hashes it, writes the Case row, mints the chain-of-custody block,
+    and generates the PDF report. Factored out of _analyze_and_render() so
+    any ingestion path that has already produced a run_pipeline() result --
+    not just the /analyze form -- can turn it into a real, scored Case
+    instead of re-implementing (or skipping) this. Returns the committed
+    Case instance."""
     case_ref = f"CASE-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
 
-    # Save raw email + compute chain-of-custody hash at ingestion time
     raw_path = os.path.join(REPORTS_DIR, f"{case_ref}.eml")
     with open(raw_path, 'wb') as fh:
         fh.write(raw_email_bytes)
@@ -641,7 +644,6 @@ def _analyze_and_render(raw_email_bytes):
     db.session.add(case)
     db.session.commit()
 
-    # Generate PDF report (includes chain-of-custody block)
     custody_record = chain_of_custody.build_custody_record(case_ref, raw_path, evidence_hash)
     report_path = os.path.join(REPORTS_DIR, f"{case_ref}.pdf")
     pipeline_case = {**result, 'case_id': case_ref, 'custody_record': custody_record}
@@ -649,15 +651,23 @@ def _analyze_and_render(raw_email_bytes):
         report_gen.generate_pdf_report(pipeline_case, report_path)
         case.report_path = report_path
     except Exception as e:
-        # Analysis itself succeeded and is already saved -- a report-rendering
-        # failure shouldn't turn into a 500 that loses the whole result.
         app.logger.error(f"PDF report generation failed for {case_ref}: {e}")
         flash('Email analyzed successfully, but the PDF report could not be generated. '
               'The case is saved -- contact an admin if this persists.', 'error')
     db.session.commit()
     log_audit('case_analyzed', target=case_ref, detail=f"severity={risk['severity']}")
+    return case
 
-    return render_template('result.html', case_ref=case_ref, result=result, case=case)
+
+def _analyze_and_render(raw_email_bytes):
+    try:
+        result = run_pipeline(raw_email_bytes)
+    except Exception as e:
+        flash(f'Failed to parse/analyze email: {e}', 'error')
+        return redirect(url_for('workspace'))
+
+    case = _create_case_from_email_bytes(raw_email_bytes, result)
+    return render_template('result.html', case_ref=case.case_ref, result=result, case=case)
 
 
 def _get_owned_case_or_404(case_ref):
@@ -665,6 +675,19 @@ def _get_owned_case_or_404(case_ref):
     if case.owner_id is not None and case.owner_id != current_user.id:
         abort(404)
     return case
+
+
+def _correlations_for(node_kind, ref, cases, evidence_items):
+    """Builds the full cross-evidence correlation graph (modules/
+    correlation_graph.py) for the current owner's cases + evidence, then
+    filters find_correlations() down to entries that actually touch this
+    one case/evidence item -- used to feed modules/case_narrative.py so
+    the narrative can call out shared infrastructure by name without the
+    caller re-deriving the graph-walk logic itself."""
+    graph = correlation_graph_mod.build_graph(cases, evidence_items)
+    all_correlations = correlation_graph_mod.find_correlations(graph)
+    self_id = f"{node_kind}:{ref}"
+    return [c for c in all_correlations if any(n['id'] == self_id for n in c['connections'])]
 
 
 @app.route('/report/<case_ref>')
@@ -675,6 +698,71 @@ def download_report(case_ref):
         flash('Report file not found.', 'error')
         return redirect(url_for('dashboard'))
     return send_file(case.report_path, as_attachment=True, download_name=f"{case_ref}_forensic_report.pdf")
+
+
+@app.route('/overview')
+@login_required
+def overview():
+    """Unified cross-source landing dashboard -- the first thing an analyst
+    sees after logging in. Everything else in 'Investigate' looks at one
+    slice at a time (cases only, or the map, or clusters); this pulls
+    every source (analyzed emails + all Evidence types) into one summary
+    so the platform reads as a multi-source forensics tool from the very
+    first screen, not an email-analysis form."""
+    all_cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
+    all_evidence = Evidence.query.filter_by(owner_id=current_user.id).order_by(Evidence.uploaded_at.desc()).all()
+
+    severity_counts = {'Critical': 0, 'High': 0, 'Medium': 0, 'Low': 0}
+    for c in all_cases:
+        if c.severity in severity_counts:
+            severity_counts[c.severity] += 1
+
+    evidence_type_labels = {
+        'email': 'Email (raw)', 'sms_export': 'SMS Export', 'chat_log': 'Chat Log',
+        'image': 'Image', 'document': 'Document', 'file': 'Other File',
+    }
+    evidence_type_counts = defaultdict(int)
+    for e in all_evidence:
+        evidence_type_counts[evidence_type_labels.get(e.evidence_type, e.evidence_type or 'Unknown')] += 1
+
+    cluster_summary = clustering.repeat_offender_summary(all_cases)
+    anomalies = anomaly_mod.detect_anomalies(all_cases)
+    anomaly_total = sum(len(v) for v in anomalies.values())
+    anomaly_highlights = (anomalies['volume_by_domain'] + anomalies['volume_by_country']
+                           + anomalies['timing'])[:5]
+
+    graph = correlation_graph_mod.build_graph(all_cases, all_evidence)
+    correlations = correlation_graph_mod.find_correlations(graph)[:5]
+
+    chain_valid, broken_at, chain_length = blockchain.verify_chain()
+
+    activity = []
+    for c in all_cases[:25]:
+        activity.append({
+            'kind': 'case', 'ref': c.case_ref,
+            'title': c.subject or '(no subject)', 'badge': c.severity,
+            'badge_class': f"severity-{(c.severity or 'low').lower()}",
+            'when': c.created_at, 'url': url_for('case_detail', case_ref=c.case_ref),
+        })
+    for e in all_evidence[:25]:
+        activity.append({
+            'kind': 'evidence', 'ref': e.evidence_ref,
+            'title': e.original_filename or e.evidence_ref,
+            'badge': evidence_type_labels.get(e.evidence_type, e.evidence_type), 'badge_class': 'bg-secondary',
+            'when': e.uploaded_at, 'url': url_for('evidence_detail', evidence_ref=e.evidence_ref),
+        })
+    activity.sort(key=lambda a: a['when'] or datetime.min, reverse=True)
+    activity = activity[:10]
+
+    return render_template(
+        'overview.html',
+        case_count=len(all_cases), evidence_count=len(all_evidence),
+        severity_counts=severity_counts, evidence_type_counts=dict(evidence_type_counts),
+        cluster_summary=cluster_summary, anomaly_total=anomaly_total,
+        anomaly_highlights=anomaly_highlights, correlations=correlations,
+        chain_valid=chain_valid, chain_length=chain_length,
+        activity=activity,
+    )
 
 
 @app.route('/dashboard')
@@ -704,8 +792,11 @@ def case_detail(case_ref):
     explanation = classifier.explain_saved_case(case)
     sibling_cases = Case.query.filter_by(owner_id=current_user.id).all()
     incident_timeline = timeline_mod.build_case_timeline(case, sibling_cases=sibling_cases)
+    evidence_items = Evidence.query.filter_by(owner_id=current_user.id).all()
+    case_correlations = _correlations_for('case', case.case_ref, sibling_cases, evidence_items)
+    narrative = case_narrative.build_case_narrative(case, incident_timeline, correlations=case_correlations)
     return render_template('case_detail.html', case=case, explanation=explanation,
-                            incident_timeline=incident_timeline)
+                            incident_timeline=incident_timeline, narrative=narrative)
 
 
 @app.route('/case/<case_ref>/notes', methods=['POST'])
@@ -801,22 +892,90 @@ def threat_map():
 @app.route('/dashboard/clusters')
 @login_required
 def threat_clusters():
+    """Repeat-infrastructure clusters. Previously built from Case rows only
+    (modules/clustering.py groups by Case's own typed columns, which
+    Evidence doesn't have), so an Evidence item sharing a phone number or
+    domain with an analyzed email never showed up as a cluster. Rather than
+    rewriting clustering.py's grouping against Evidence's untyped
+    metadata_json blob, this reuses correlation_graph.py's already
+    cross-source entity graph (Case + Evidence, deduplicated by shared
+    sender/domain/ip/phone) and treats each entity with 2+ sources as a
+    cluster -- the same signal, already computed for the Correlation Graph
+    page, now also surfaced here."""
     all_cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
-    clusters = clustering.build_clusters(all_cases)
+    all_evidence = Evidence.query.filter_by(owner_id=current_user.id).order_by(Evidence.uploaded_at.desc()).all()
+
+    graph = correlation_graph_mod.build_graph(all_cases, all_evidence)
+    correlations = correlation_graph_mod.find_correlations(graph)
+
+    case_urls = {c.case_ref: url_for('case_detail', case_ref=c.case_ref) for c in all_cases}
+    evidence_urls = {e.evidence_ref: url_for('evidence_detail', evidence_ref=e.evidence_ref) for e in all_evidence}
+
+    clusters = []
+    for corr in correlations:
+        node = corr['node']
+        sources = []
+        for conn in corr['connections']:
+            if conn['type'] == 'case':
+                sources.append({
+                    'kind': 'case', 'ref': conn['ref'], 'label': conn['ref'],
+                    'subtitle': conn.get('subtitle'), 'severity': conn.get('severity'),
+                    'score': conn.get('score'), 'url': case_urls.get(conn['ref']),
+                })
+            else:
+                sources.append({
+                    'kind': 'evidence', 'ref': conn['ref'], 'label': conn['label'],
+                    'subtitle': conn.get('subtitle'), 'severity': None,
+                    'score': None, 'url': evidence_urls.get(conn['ref']),
+                })
+        clusters.append({
+            'cluster_type': f"Shared {node['type']}",
+            'key': node['label'],
+            'case_count': corr['count'],
+            'sources': sources,
+        })
     return render_template('clusters.html', clusters=clusters)
 
 
 @app.route('/dashboard/anomalies')
 @login_required
 def threat_anomalies():
-    """Cross-case statistical anomaly detection (modules/anomaly.py) --
-    volume spikes and unusual sending-time patterns across the analyst's
-    whole case history, as opposed to every other check in the pipeline
-    which scores one email in isolation."""
+    """Cross-source statistical anomaly detection (modules/anomaly.py) --
+    volume spikes and unusual-time patterns across the analyst's whole
+    Case AND Evidence history, as opposed to every other check in the
+    pipeline which scores one item in isolation. Previously Evidence
+    (SMS/chat/image/document) couldn't appear here at all; phone numbers
+    detected in SMS exports and chat logs are now their own entity for
+    both volume-spike and unusual-time detection, alongside sender
+    domain/country from analyzed emails."""
     all_cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.asc()).all()
-    anomalies = anomaly_mod.detect_anomalies(all_cases)
+    all_evidence = Evidence.query.filter_by(owner_id=current_user.id).order_by(Evidence.uploaded_at.asc()).all()
+    anomalies = anomaly_mod.detect_anomalies(all_cases, all_evidence)
     total = sum(len(v) for v in anomalies.values())
-    return render_template('anomalies.html', anomalies=anomalies, total=total, case_count=len(all_cases))
+    evidence_urls = {e.evidence_ref: url_for('evidence_detail', evidence_ref=e.evidence_ref) for e in all_evidence}
+    case_urls = {c.case_ref: url_for('case_detail', case_ref=c.case_ref) for c in all_cases}
+    return render_template('anomalies.html', anomalies=anomalies, total=total,
+                            case_count=len(all_cases), evidence_count=len(all_evidence),
+                            case_urls=case_urls, evidence_urls=evidence_urls)
+
+
+@app.route('/dashboard/correlation')
+@login_required
+def correlation_graph():
+    """Cross-evidence correlation graph (modules/correlation_graph.py) --
+    a single network view spanning both analyzed-email Cases and the
+    generic multi-source Evidence ledger, so a sender/domain/IP/phone
+    number shared across otherwise-unrelated sources shows up as a visible
+    pivot point rather than something an analyst has to spot by hand."""
+    cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
+    evidence_items = Evidence.query.filter_by(owner_id=current_user.id).order_by(Evidence.uploaded_at.desc()).all()
+    graph = correlation_graph_mod.build_graph(cases, evidence_items)
+    correlations = correlation_graph_mod.find_correlations(graph)
+    case_urls = {c.case_ref: url_for('case_detail', case_ref=c.case_ref) for c in cases}
+    evidence_urls = {e.evidence_ref: url_for('evidence_detail', evidence_ref=e.evidence_ref) for e in evidence_items}
+    return render_template('correlation_graph.html', graph=graph, correlations=correlations,
+                            case_urls=case_urls, evidence_urls=evidence_urls,
+                            case_count=len(cases), evidence_count=len(evidence_items))
 
 
 # ---------------------------------------------------------------------------
@@ -870,7 +1029,36 @@ def evidence_upload():
             fh.write(raw_bytes)
 
         sha256 = evidence_ingest.compute_sha256(raw_bytes)
-        metadata = evidence_ingest.extract_metadata(raw_bytes, evidence_type, original_filename)
+
+        # An .eml uploaded through the Evidence tab previously got only the
+        # generic mime/size treatment -- no classifier, no SPF/DKIM/DMARC --
+        # even though evidence_ingest.py lists 'email' as an ingestible type.
+        # Route it into the SAME pipeline /analyze uses, so a judge testing
+        # this exact path (Evidence tab, not Analyze tab) gets a real,
+        # scored Case instead of a hollow result. The Evidence row still
+        # gets created either way, but now auto-linked to that Case.
+        if evidence_type == 'email' and not linked_case_ref:
+            try:
+                pipeline_result = run_pipeline(raw_bytes)
+                auto_case = _create_case_from_email_bytes(raw_bytes, pipeline_result)
+                linked_case_ref = auto_case.case_ref
+                risk = pipeline_result['risk_result']
+                metadata = {
+                    'routed_through_email_pipeline': True,
+                    'auto_created_case_ref': auto_case.case_ref,
+                    'severity': risk['severity'],
+                    'combined_score': risk['combined_score'],
+                    'spf_result': pipeline_result['auth_result']['spf'],
+                    'dkim_result': pipeline_result['auth_result']['dkim'],
+                    'dmarc_result': pipeline_result['auth_result']['dmarc'],
+                }
+                flash(f'Email evidence analyzed and filed as case {auto_case.case_ref}.', 'success')
+            except Exception as e:
+                app.logger.error(f"Evidence-tab email pipeline failed for {evidence_ref}: {e}")
+                metadata = evidence_ingest.extract_metadata(raw_bytes, evidence_type, original_filename)
+                metadata['note'] = f'Could not run full email analysis: {e}'
+        else:
+            metadata = evidence_ingest.extract_metadata(raw_bytes, evidence_type, original_filename)
 
         item = Evidence(
             owner_id=current_user.id,
@@ -917,8 +1105,14 @@ def evidence_detail(evidence_ref):
     except (ValueError, TypeError):
         metadata = {}
 
+    sibling_cases = Case.query.filter_by(owner_id=current_user.id).all()
+    sibling_evidence = Evidence.query.filter_by(owner_id=current_user.id).all()
+    evidence_correlations = _correlations_for('file', item.evidence_ref, sibling_cases, sibling_evidence)
+    narrative = case_narrative.build_evidence_narrative(item, metadata, correlations=evidence_correlations)
+
     return render_template('evidence_detail.html', item=item, metadata=metadata,
-                            verified=verified, current_hash=current_hash, block=block)
+                            verified=verified, current_hash=current_hash, block=block,
+                            narrative=narrative)
 
 
 # ---------------------------------------------------------------------------

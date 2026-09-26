@@ -268,6 +268,40 @@
                 </td>
               </tr>
               {% endif %}
+              {% if a.is_document and a.document_forensics %}
+              <tr>
+                <td colspan="5" style="background:#f8fafc;">
+                  {% set docf = a.document_forensics %}
+                  {% if docf.analyzed %}
+                  <div class="small text-muted mb-1">
+                    <i class="fa-solid fa-file-shield me-1"></i>Document tampering check —
+                    {{ 'PDF' if docf.doc_type == 'pdf' else 'Word document' }}
+                  </div>
+                  <div class="small">
+                    {% if docf.doc_type == 'pdf' %}
+                      <div>Producer: {{ docf.producer or '—' }}{% if docf.creator %} · Creator: {{ docf.creator }}{% endif %}</div>
+                      <div>Created: {{ docf.creation_date or '—' }} · Modified: {{ docf.modification_date or '—' }}</div>
+                      {% if docf.incremental_update_count is not none %}
+                      <div>Incremental updates after initial save: {{ docf.incremental_update_count }}</div>
+                      {% endif %}
+                    {% elif docf.doc_type == 'docx' %}
+                      <div>Author: {{ docf.author or '—' }} · Last modified by: {{ docf.last_modified_by or '—' }}</div>
+                      <div>Created: {{ docf.creation_date or '—' }} · Modified: {{ docf.modification_date or '—' }}</div>
+                    {% endif %}
+                    {% if docf.flags %}
+                      {% for f in docf.flags %}
+                      <span class="badge rounded-pill mt-1" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ f }}</span><br>
+                      {% endfor %}
+                    {% else %}
+                      <span class="text-success"><i class="fa-solid fa-check me-1"></i>No tampering signals found</span>
+                    {% endif %}
+                  </div>
+                  {% else %}
+                  <div class="small text-muted"><i class="fa-solid fa-circle-info me-1"></i>{{ docf.note }}</div>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endif %}
               {% endfor %}
             </tbody>
           </table>
@@ -431,12 +465,12 @@
 <script>
 document.addEventListener('DOMContentLoaded', function () {
   var readBtn = document.getElementById('readAloudBtn');
-  if (!MailFoxVoice.supported.speech) {
+  if (!FORENSIQVoice.supported.speech) {
     readBtn.classList.add('d-none');
   } else {
     readBtn.addEventListener('click', function () {
       var el = document.getElementById('voiceSummary');
-      MailFoxVoice.speak(el ? el.textContent : '');
+      FORENSIQVoice.speak(el ? el.textContent : '');
     });
   }
 });

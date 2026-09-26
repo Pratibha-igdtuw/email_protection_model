@@ -1,10 +1,45 @@
-# AI-Powered Email Threat Detection, GeoLocation & Forensic Intelligence Platform
+# FORENSIQ — AI-Powered Digital Forensics Investigation Platform
 
-One upload -> content AI classifier, geolocation trace, SPF/DKIM/DMARC
-authentication check, WHOIS + blacklist/PhishTank reputation — merged into a
-single combined risk score (0-100) with a severity verdict
-(Low/Medium/High/Critical), a downloadable PDF forensic report, and a
-blockchain-anchored evidence ledger for chain of custody.
+Collect, analyse, authenticate, and correlate digital evidence from multiple
+sources — email, images, PDFs/Word documents, chat and SMS exports, phone
+numbers — in one investigation workspace. Every source runs through the
+forensic checks appropriate to it (AI/NLP content analysis, sender
+authentication, image tamper detection via ELA/EXIF, document tamper
+detection, WHOIS/blacklist reputation, geolocation), gets a SHA-256 hash
+committed to an append-only blockchain evidence ledger at ingestion, and
+feeds a cross-evidence correlation graph that surfaces a shared domain,
+IP, sender, or phone number across otherwise-unrelated pieces of
+evidence. Each case or evidence item gets an auto-generated narrative
+reconstructing what the pipeline found, plus a downloadable PDF forensic
+report.
+
+Every one of the platform's cross-source analytical views — content
+classification, cluster detection, and anomaly detection — now spans
+**both** analyzed-email cases and the generic Evidence ledger, not just
+email:
+
+- **AI content analysis**: the trained phishing classifier + NLP
+  social-engineering cues (urgency language, suspicious/shortened links)
+  run on email *and* on SMS exports/chat logs at ingestion
+  (`modules/classifier.py::classify_text_fragment`), producing a
+  fraud-likelihood score and flags for evidence types that previously got
+  no content analysis at all.
+- **Clustering** (`/dashboard/clusters`) and **anomaly detection**
+  (`/dashboard/anomalies`) are both built on the same cross-source
+  correlation graph / entity-event model as domains, IPs, senders, and
+  phone numbers extracted from Evidence items — so a repeat phone number
+  across two chat-log uploads, with zero emails involved, can surface a
+  cluster or trigger a volume-spike anomaly on its own.
+- **Authentication** (hash + blockchain ledger) and **fraud/manipulation
+  detection** (ELA/EXIF for images, tamper forensics for documents) were
+  already uniform across every evidence type.
+
+Email analysis (SPF/DKIM/DMARC, WHOIS, geolocation, blacklist/PhishTank
+reputation, a 0-100 combined risk score) remains the most fully built-out
+single evidence type — it's the only type with domain-age/geo/auth
+checks, which are inherently email-specific concepts — but it's one
+evidence type among several now, not the whole platform. See "Project
+structure" below for how the pieces fit together.
 
 ## Setup
 
@@ -51,21 +86,56 @@ using the Docker setup.
 
 - `/` — public landing page
 - `/signup`, `/login`, `/logout` — account creation and session management
+- `/overview` — unified cross-source landing dashboard: every analyzed
+  email case + every ingested evidence item, severity/type breakdown,
+  cluster and anomaly summary, top correlations, and a combined recent
+  activity feed, in one screen
+- `/evidence/upload` — ingest an SMS export, chat log, image, document
+  (PDF/Word), or other file as standalone forensic evidence — auto-hashed,
+  metadata-extracted (EXIF + ELA tamper check for images, tamper forensics
+  for documents, AI fraud-likelihood scan + phone-number extraction for
+  SMS/chat text), and committed to the blockchain ledger like an analyzed
+  email. Uploading a raw `.eml` here now runs the *same* full pipeline as
+  `/app` (classifier, SPF/DKIM/DMARC, risk score) instead of a generic
+  mime/size check — it auto-creates a real Case and links this Evidence
+  item to it
+- `/evidence`, `/evidence/<evidence_ref>` — evidence list and detail
+  (integrity verification, extracted metadata, auto-generated narrative)
+- `/dashboard/correlation` — cross-evidence correlation graph spanning
+  both analyzed-email cases and the generic evidence ledger; surfaces a
+  domain/IP/sender/phone number shared across otherwise-unrelated
+  evidence as a visible pivot point
 - `/app` — paste raw email source or upload a `.eml` file, run analysis
+  (the email-specific evidence path)
 - `/connect-mailbox` — Gmail via OAuth2 (if configured, see below) or
   IMAP with an app password for Gmail/Outlook/Exchange
-- `/dashboard` — analyst queue: search, filter by severity, export CSV, retrain model
-- `/dashboard/map` — geolocated cases on a live map
+- `/dashboard` — analyzed-email case queue: search, filter by severity,
+  export CSV, retrain model (email cases only — see `/overview`,
+  `/dashboard/correlation`, `/dashboard/clusters`, and `/dashboard/anomalies`
+  above/below for the cross-source views)
+- `/dashboard/map` — geolocated email cases on a live map (Evidence items
+  have no geolocation data, so this one stays email-specific)
 - `/dashboard/clusters` — repeat-offender / coordinated-campaign clustering
-- `/case/<case_ref>` — case detail, analyst notes, feedback verdict buttons
+  spanning both email cases and Evidence items, built on the same
+  correlation graph as `/dashboard/correlation` — a shared domain, IP,
+  sender, or phone number across 2+ sources is a cluster, regardless of
+  what type those sources are
+- `/dashboard/anomalies` — volume/timing anomaly detection spanning both
+  email cases (by sender domain/country) and Evidence items (by phone
+  number extracted from SMS/chat text) — an entity spiking or appearing at
+  an unusual hour can trigger an anomaly even with no case involved at all
+- `/case/<case_ref>` — case detail, auto-generated incident narrative,
+  incident-reconstruction timeline, analyst notes, feedback verdict buttons
 - `/report/<case_ref>` — download the generated PDF forensic report
-- `/blockchain` — the append-only evidence hash-chain, plus each block's
-  public on-chain anchoring status (see "Real blockchain anchoring setup" below)
+- `/blockchain` — the append-only evidence hash-chain (spans both cases
+  and evidence items), plus each block's public on-chain anchoring status
+  (see "Real blockchain anchoring setup" below)
 - `/api/cases` — JSON list of your analyzed cases (session login, or an
   `X-API-Key` header — see "API key access" below)
 - `/account/api-key` — generate/revoke your personal API key
 - `/admin/audit-log` — admin-only activity trail (who signed in, analyzed a
-  case, changed a verdict, exported data, or retrained the model)
+  case, ingested evidence, changed a verdict, exported data, or retrained
+  the model)
 
 Two ready-to-use test emails are in `sample_emails/`:
 - `phishing_sample.eml` — spoofed PayPal email with SPF/DKIM/DMARC failures,
@@ -84,20 +154,38 @@ contracts/
   EvidenceAnchor.sol        On-chain anchoring contract (see "Real blockchain anchoring setup")
   build/                    Checked-in compiled ABI/bytecode (see contracts/README.md)
 modules/
-  parser.py                 Module 1: header/body parser, Received chain, IP extraction
-  classifier.py              Module 1: ML phishing classifier + NLP social-engineering cues
-  geoip.py                   Module 2: IP geolocation (ip-api.com) + brand/hosting mismatch
-  whois_lookup.py             Module 3: WHOIS domain age check
-  auth_check.py               Module 3: SPF / DKIM / DMARC verification (headers + optional live DNS)
-  blacklist.py                Module 3: local blacklist + PhishTank-verified domain check + optional AbuseIPDB
-  clustering.py               Repeat-offender / coordinated-campaign clustering
-  risk_score.py               Module 4: combined weighted risk score + severity banding
-  report_gen.py               Module 3: PDF forensic report (ReportLab)
-  chain_of_custody.py          SHA-256 evidence hashing + custody record
-  blockchain.py                Local append-only hash-chain (mined per case)
-  blockchain_anchor.py          Real on-chain anchoring via web3.py (optional, see below)
-  oauth_gmail.py               Gmail OAuth2 connector
-  mailbox_connector.py         IMAP app-password connector (Gmail/Outlook/Exchange)
+  evidence_ingest.py          Multi-source evidence ingestion: SMS export, chat log, image,
+                               document, or other file -- hashing, type-appropriate metadata, and
+                               (for SMS/chat) an AI fraud-likelihood scan via classifier.py
+  image_forensics.py          Image tamper detection: Error Level Analysis (ELA) + EXIF
+                               editing-tool/timestamp consistency check
+  document_forensics.py       PDF/Word tamper detection: producer/creator metadata, creation vs.
+                               modification date, incremental-update count
+  correlation_graph.py        Cross-evidence correlation graph spanning both cases and evidence
+                               items -- shared sender/domain/IP/phone becomes a visible pivot
+  case_narrative.py           Auto-generated plain-English narrative per case/evidence item,
+                               compiled from everything else the pipeline already computed
+  timeline.py                 Incident-reconstruction timeline (received -> auth failure ->
+                               content/attachment/URL flag -> clustered -> hashed) per case
+  anomaly.py                  Volume/timing anomaly detection spanning cases (domain/country) and
+                               Evidence items (phone numbers from SMS/chat text)
+  parser.py                   Module 1: header/body parser, Received chain, IP extraction
+  classifier.py                Module 1: ML phishing classifier + NLP social-engineering cues for
+                               email; classify_text_fragment() reuses the same model for SMS/chat text
+  geoip.py                     Module 2: IP geolocation (ip-api.com) + brand/hosting mismatch
+  whois_lookup.py               Module 3: WHOIS domain age check
+  auth_check.py                 Module 3: SPF / DKIM / DMARC verification (headers + optional live DNS)
+  blacklist.py                  Module 3: local blacklist + PhishTank-verified domain check + optional AbuseIPDB
+  clustering.py                 Repeat-offender IP/ASN/domain clustering used only for the
+                               /dashboard/map summary; /dashboard/clusters itself is powered by
+                               correlation_graph.py, above, so it covers Evidence too
+  risk_score.py                 Module 4: combined weighted risk score + severity banding (email cases)
+  report_gen.py                 Module 3: PDF forensic report (ReportLab)
+  chain_of_custody.py            SHA-256 evidence hashing + custody record (cases and evidence items)
+  blockchain.py                  Local append-only hash-chain (mined per case/evidence item)
+  blockchain_anchor.py            Real on-chain anchoring via web3.py (optional, see below)
+  oauth_gmail.py                  Gmail OAuth2 connector
+  mailbox_connector.py            IMAP app-password connector (Gmail/Outlook/Exchange)
   retrain.py                   Self-improving feedback-loop retraining
 templates/                  Landing, signup/login, and app UI
 static/css/style.css         Design system

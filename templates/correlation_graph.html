@@ -1,0 +1,125 @@
+{% extends 'base.html' %}
+{% block title %}Correlation Graph — MailFox{% endblock %}
+{% block content %}
+<link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/dist/vis-network.min.css">
+
+<div class="d-flex justify-content-between align-items-center mb-1 flex-wrap gap-2">
+  <h3 class="fw-bold mb-0">Cross-Evidence Correlation Graph</h3>
+  <div class="d-flex gap-3 small text-muted">
+    <span><b>{{ case_count }}</b> cases</span>
+    <span><b>{{ evidence_count }}</b> evidence items</span>
+    <span><b>{{ correlations|length }}</b> correlation points</span>
+  </div>
+</div>
+<p class="text-muted mb-4">Emails, evidence files, senders, domains, IPs, and phone numbers in one network —
+  a value shared across two otherwise-unrelated sources shows up as one node with multiple lines into it.</p>
+
+<div class="row g-3">
+  <div class="col-lg-9">
+    <div class="card shadow-sm">
+      <div class="card-body p-0">
+        <div id="correlationCanvas" style="height: 600px; border-radius: 12px;"></div>
+      </div>
+    </div>
+    {% if not graph.nodes %}
+    <p class="text-muted mt-3">Nothing to correlate yet — analyze an email or upload evidence to populate the graph.</p>
+    {% else %}
+    <div class="d-flex gap-3 small text-muted mt-2 flex-wrap">
+      <span><span class="legend-dot" style="background:#2563eb;"></span>Case (email)</span>
+      <span><span class="legend-dot" style="background:#16a34a;"></span>Evidence file</span>
+      <span><span class="legend-dot" style="background:#9333ea;"></span>Sender</span>
+      <span><span class="legend-dot" style="background:#d97706;"></span>Domain</span>
+      <span><span class="legend-dot" style="background:#dc2626;"></span>IP</span>
+      <span><span class="legend-dot" style="background:#0891b2;"></span>Phone number</span>
+    </div>
+    <style>.legend-dot{display:inline-block;width:10px;height:10px;border-radius:50%;margin-right:5px;}</style>
+    {% endif %}
+  </div>
+
+  <div class="col-lg-3">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-crosshairs me-2"></i>Correlation Points</div>
+      <div class="card-body" style="max-height: 600px; overflow-y: auto;">
+        {% if not correlations %}
+        <p class="text-muted small mb-0">No shared sender, domain, IP, or phone number across two or more sources yet.</p>
+        {% else %}
+        {% for c in correlations %}
+        <div class="mb-3 pb-2 {{ 'border-bottom' if not loop.last }}">
+          <div class="small fw-bold text-truncate" title="{{ c.node.label }}">{{ c.node.label }}</div>
+          <span class="badge bg-secondary mb-1">{{ c.node.type }}</span>
+          <span class="badge bg-dark mb-1">{{ c.count }} sources</span>
+          <div class="small">
+            {% for n in c.connections %}
+              {% if n.type == 'case' and n.ref in case_urls %}
+              <a href="{{ case_urls[n.ref] }}"><code>{{ n.ref }}</code></a>{{ ', ' if not loop.last }}
+              {% elif n.type == 'file' and n.ref in evidence_urls %}
+              <a href="{{ evidence_urls[n.ref] }}"><code>{{ n.ref }}</code></a>{{ ', ' if not loop.last }}
+              {% else %}
+              {{ n.label }}{{ ', ' if not loop.last }}
+              {% endif %}
+            {% endfor %}
+          </div>
+        </div>
+        {% endfor %}
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<script src="https://cdnjs.cloudflare.com/ajax/libs/vis-network/9.1.9/dist/vis-network.min.js"></script>
+<script>
+const graphNodes = {{ graph.nodes|tojson }};
+const graphEdges = {{ graph.edges|tojson }};
+const caseUrls = {{ case_urls|tojson }};
+const evidenceUrls = {{ evidence_urls|tojson }};
+
+const typeStyle = {
+  case:   { color: '#2563eb', shape: 'box' },
+  file:   { color: '#16a34a', shape: 'box' },
+  sender: { color: '#9333ea', shape: 'ellipse' },
+  domain: { color: '#d97706', shape: 'ellipse' },
+  ip:     { color: '#dc2626', shape: 'ellipse' },
+  phone:  { color: '#0891b2', shape: 'ellipse' },
+};
+
+const visNodes = new vis.DataSet(graphNodes.map(n => {
+  const style = typeStyle[n.type] || { color: '#64748b', shape: 'ellipse' };
+  return {
+    id: n.id,
+    label: n.label.length > 24 ? n.label.slice(0, 22) + '…' : n.label,
+    title: n.subtitle ? `${n.label}\n${n.subtitle}` : n.label,
+    color: { background: style.color, border: style.color, highlight: { background: style.color, border: '#111827' } },
+    font: { color: '#ffffff', size: 12 },
+    shape: style.shape,
+  };
+}));
+
+const visEdges = new vis.DataSet(graphEdges.map((e, i) => ({
+  id: i, from: e.source, to: e.target, label: e.relation,
+  font: { size: 9, color: '#64748b', strokeWidth: 0 },
+  color: { color: '#cbd5e1', highlight: '#334155' },
+  arrows: 'to',
+})));
+
+const container = document.getElementById('correlationCanvas');
+if (container && graphNodes.length) {
+  const network = new vis.Network(container, { nodes: visNodes, edges: visEdges }, {
+    physics: { stabilization: true, barnesHut: { gravitationalConstant: -6000, springLength: 140 } },
+    interaction: { hover: true, tooltipDelay: 150 },
+    layout: { improvedLayout: true },
+  });
+
+  network.on('click', function (params) {
+    if (!params.nodes.length) return;
+    const node = graphNodes.find(n => n.id === params.nodes[0]);
+    if (!node) return;
+    if (node.type === 'case' && caseUrls[node.ref]) {
+      window.location.href = caseUrls[node.ref];
+    } else if (node.type === 'file' && evidenceUrls[node.ref]) {
+      window.location.href = evidenceUrls[node.ref];
+    }
+  });
+}
+</script>
+{% endblock %}

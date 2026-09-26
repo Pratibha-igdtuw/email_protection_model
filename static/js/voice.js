@@ -4,9 +4,9 @@
  * API (no server round-trip, no API key, works offline once the page is
  * loaded). Two pieces, both optional/progressive-enhancement:
  *
- *   1. MailFoxVoice.speak(text)         — reads a verdict out loud
+ *   1. FORENSIQVoice.speak(text)         — reads a verdict out loud
  *      (SpeechSynthesis). Used for "read the result aloud" buttons.
- *   2. MailFoxVoice.attachDictation(el) — lets the user speak into a
+ *   2. FORENSIQVoice.attachDictation(el) — lets the user speak into a
  *      button instead of typing, e.g. reading a suspicious phone number
  *      or message aloud (SpeechRecognition). Fills the given input/textarea.
  *
@@ -91,7 +91,7 @@
     });
   }
 
-  global.MailFoxVoice = {
+  global.FORENSIQVoice = {
     speak: speak,
     stopSpeaking: stopSpeaking,
     attachDictation: attachDictation,

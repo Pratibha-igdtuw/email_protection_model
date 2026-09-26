@@ -12,6 +12,15 @@
   </div>
 </div>
 
+{% if narrative %}
+<div class="card shadow-sm mb-3 border-0" style="background:#f8fafc;">
+  <div class="card-body">
+    <div class="small text-muted fw-semibold mb-2"><i class="fa-solid fa-file-lines me-1"></i>Case Narrative</div>
+    <p class="mb-0">{{ narrative }}</p>
+  </div>
+</div>
+{% endif %}
+
 <div class="row g-3">
   <div class="col-lg-6">
     <div class="card shadow-sm">

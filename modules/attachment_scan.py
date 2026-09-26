@@ -13,10 +13,17 @@ Image attachments additionally go through modules/image_forensics.py for
 Error Level Analysis + EXIF-consistency tampering checks -- those checks
 verify the *content* of an image hasn't been edited after the fact, which
 the filename/MIME checks in this module say nothing about.
+
+PDF and Word (.docx) attachments go through modules/document_forensics.py
+for the equivalent check on documents -- creation/modification date
+mismatches, editing-tool fingerprints, and (for PDFs) incremental-update
+detection -- since a document can just as easily be presented as
+unaltered "evidence" (an invoice, a contract, an ID scan) as an image can.
 """
 import re
 
 from modules import image_forensics
+from modules import document_forensics
 
 DANGEROUS_EXTENSIONS = {
     '.exe', '.scr', '.bat', '.cmd', '.com', '.pif', '.vbs', '.vbe',
@@ -108,6 +115,12 @@ def analyze_attachments(parsed_attachments):
             att_flags.extend(image_forensics_result['flags'])
             att_score += image_forensics_result['risk_score']
 
+        document_forensics_result = None
+        if document_forensics.is_document(filename, content_type):
+            document_forensics_result = document_forensics.analyze_document(payload, filename, content_type)
+            att_flags.extend(document_forensics_result['flags'])
+            att_score += document_forensics_result['risk_score']
+
         att_out = {k: v for k, v in att.items() if k != 'payload'}
         att_out.update({
             'extension': ext,
@@ -118,6 +131,8 @@ def analyze_attachments(parsed_attachments):
             'mime_mismatch': mime_mismatch,
             'is_image': image_forensics_result is not None,
             'image_forensics': image_forensics_result,
+            'is_document': document_forensics_result is not None,
+            'document_forensics': document_forensics_result,
             'risk_flags': att_flags,
         })
         results.append(att_out)

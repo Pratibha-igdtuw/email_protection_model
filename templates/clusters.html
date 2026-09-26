@@ -1,12 +1,12 @@
 {% extends 'base.html' %}
-{% block title %}Threat Clusters — MailFox{% endblock %}
+{% block title %}Threat Clusters — FORENSIQ{% endblock %}
 {% block content %}
 <h3 class="fw-bold mb-1">Coordinated Campaign / Repeat-Offender Clusters</h3>
-<p class="text-muted mb-4">Cases grouped by shared originating IP, hosting ASN, or sender domain — surfaces campaigns that look like separate emails but trace back to the same infrastructure.</p>
+<p class="text-muted mb-4">Analyzed emails <strong>and</strong> uploaded Evidence items grouped by a shared sender, domain, IP, or phone number — surfaces campaigns that look like separate, unrelated sources but trace back to the same infrastructure.</p>
 
 {% if not clusters %}
 <div class="card shadow-sm"><div class="card-body text-center text-muted py-5">
-  No repeat infrastructure detected yet — clusters appear once 2+ analyzed emails share an IP, ASN, or domain.
+  No repeat infrastructure detected yet — clusters appear once 2+ cases or evidence items share a sender, domain, IP, or phone number.
 </div></div>
 {% endif %}
 
@@ -14,20 +14,31 @@
 <div class="card shadow-sm mb-3">
   <div class="card-header d-flex justify-content-between align-items-center">
     <span><i class="fa-solid fa-diagram-project me-2"></i>{{ cluster.cluster_type }}: <code>{{ cluster.key }}</code></span>
-    <span class="badge bg-dark">{{ cluster.case_count }} emails</span>
+    <span class="badge bg-dark">{{ cluster.case_count }} source(s)</span>
   </div>
   <div class="table-responsive">
     <table class="table table-sm mb-0">
-      <thead><tr><th>Case Ref</th><th>Subject</th><th>Sender Domain</th><th>Score</th><th>Severity</th><th>Date</th></tr></thead>
+      <thead><tr><th>Source</th><th>Ref</th><th>Detail</th><th>Score</th><th>Severity</th></tr></thead>
       <tbody>
-      {% for c in cluster.cases %}
+      {% for s in cluster.sources %}
         <tr>
-          <td><a href="{{ url_for('case_detail', case_ref=c.case_ref) }}"><code>{{ c.case_ref }}</code></a></td>
-          <td class="text-truncate" style="max-width:220px;">{{ c.subject }}</td>
-          <td>{{ c.sender_domain }}</td>
-          <td>{{ c.combined_score }}</td>
-          <td><span class="badge severity-badge severity-{{ c.severity|lower }}">{{ c.severity }}</span></td>
-          <td class="small">{{ c.created_at.strftime('%d %b, %H:%M') }}</td>
+          <td>
+            {% if s.kind == 'case' %}
+              <span class="badge bg-primary-subtle text-primary">Email Case</span>
+            {% else %}
+              <span class="badge bg-secondary-subtle text-secondary">Evidence</span>
+            {% endif %}
+          </td>
+          <td>
+            {% if s.url %}<a href="{{ s.url }}"><code>{{ s.ref }}</code></a>{% else %}<code>{{ s.ref }}</code>{% endif %}
+          </td>
+          <td class="text-truncate" style="max-width:260px;">{{ s.subtitle or '—' }}</td>
+          <td>{{ s.score if s.score is not none else '—' }}</td>
+          <td>
+            {% if s.severity %}
+              <span class="badge severity-badge severity-{{ s.severity|lower }}">{{ s.severity }}</span>
+            {% else %}—{% endif %}
+          </td>
         </tr>
       {% endfor %}
       </tbody>
