@@ -1,0 +1,80 @@
+{% extends 'base.html' %}
+{% block title %}Verify a Website — MailFox{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="mb-4">
+      <h1 class="fw-bold" style="font-size:1.9rem;">Is this really their website?</h1>
+      <p class="text-muted mb-0">
+        Got a link that claims to be your bank, a government office, or a company —
+        but you're not sure it's real? Tell us who it claims to be and paste the link
+        you were given. We'll check it against the actual official website, live.
+      </p>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <form action="{{ url_for('verify_site') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label fw-semibold" for="brandInput">Who does this link claim to be? (e.g. SBI, Amazon, Income Tax Dept.)</label>
+          <input type="text" id="brandInput" name="brand" class="form-control form-control-lg mb-3"
+                 placeholder="e.g. State Bank of India" value="{{ submitted_brand or '' }}" autocomplete="off">
+
+          <label class="form-label fw-semibold" for="urlInput">The link you were sent</label>
+          <input type="text" id="urlInput" name="url" class="form-control form-control-lg"
+                 placeholder="e.g. https://sbi-secure-login.example.com" value="{{ submitted_url or '' }}" autocomplete="off">
+
+          <div class="d-grid mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="fa-solid fa-building-shield me-2"></i>Check this website
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    {% if checked %}
+      {% if result.status == 'success' %}
+      <div class="card verdict-card {{ 'severity-low' if result.is_official else 'severity-high' }} shadow-sm mb-4">
+        <div class="card-body">
+          <h4 class="mb-2">
+            {% if result.is_official %}
+              <i class="fa-solid fa-circle-check text-success me-1"></i>
+            {% else %}
+              <i class="fa-solid fa-triangle-exclamation text-danger me-1"></i>
+            {% endif %}
+            {{ result.verdict }}
+          </h4>
+          <p class="text-muted small mb-1">Link you were sent: <code>{{ result.claimed_domain }}</code></p>
+          {% if result.official_domains %}
+          <p class="text-muted small mb-0">
+            Official website(s) found: {% for d in result.official_domains %}<code>{{ d }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+          </p>
+          {% endif %}
+        </div>
+      </div>
+      {% if not result.is_official %}
+      <div class="alert alert-warning">
+        <strong>Don't click this link, and don't enter any password or OTP on it.</strong>
+        If you already did, change that password right away and contact
+        {{ submitted_brand }} through a number or app you already trust — never
+        a number or link this message gave you.
+      </div>
+      {% endif %}
+      {% elif result.status == 'not_configured' %}
+      <div class="alert alert-secondary">Website verification isn't configured on this deployment yet.</div>
+      {% else %}
+      <div class="alert alert-secondary">Couldn't check this right now — please try again in a moment.</div>
+      {% endif %}
+    {% endif %}
+
+    <p class="text-muted small mt-3 mb-0">
+      Got a suspicious call instead? <a href="{{ url_for('check_number') }}">Check that phone number</a>.
+    </p>
+  </div>
+</div>
+{% endblock %}

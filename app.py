@@ -58,6 +58,9 @@ from modules import evidence_ingest
 from modules import timeline as timeline_mod
 from modules import anomaly as anomaly_mod
 from modules import phone_reputation
+from modules import web_corroboration
+from modules import link_preview
+from modules import site_verification
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
@@ -343,12 +346,19 @@ def run_pipeline(raw_email_bytes):
         # internally (concurrently), so it runs as one more independent
         # branch alongside the rest rather than blocking on them.
         relay_future = pool.submit(relay_trust_mod.reconstruct_trusted_relay, parsed)
+        # Live web corroboration (TinyFish Search + Fetch) -- checks the
+        # sender domain against real-time scam reports on the open web,
+        # as a complement to the static PhishTank snapshot below. This is
+        # advisory evidence only; see web_corroboration.py docstring for
+        # why it is never fed into the numeric risk score.
+        corrob_future = pool.submit(web_corroboration.check_web_corroboration, parsed.get('sender_domain'))
 
         auth_result = auth_future.result()
         geo_result = geo_future.result()
         whois_result = whois_future.result()
         abuseipdb_result = abuseipdb_future.result()
         relay_trust_result = relay_future.result()
+        corroboration_result = corrob_future.result()
 
     geo_mismatch = geoip_mod.check_brand_mismatch(parsed.get('sender_domain'), geo_result)
     classify_result = classifier.classify_email(parsed, urls)
@@ -384,6 +394,7 @@ def run_pipeline(raw_email_bytes):
         'url_result': url_result,
         'risk_result': risk_result,
         'relay_trust_result': relay_trust_result,
+        'corroboration_result': corroboration_result,
     }
 
 
@@ -498,6 +509,9 @@ def check_number():
     scam_list_result = phone_reputation.check_scam_number_list(normalized)
     api_result = phone_reputation.check_ipqualityscore(normalized)
     score, severity, reasons = phone_reputation.compute_phone_score(local_hits, scam_list_result, api_result)
+    # Live web corroboration for the number, same TinyFish Search+Fetch
+    # module used for email domains -- advisory only, not score input.
+    corroboration_result = web_corroboration.check_web_corroboration(normalized)
 
     log_audit('phone_number_checked', target=display, detail=f"severity={severity} score={score}")
 
@@ -507,6 +521,51 @@ def check_number():
         'phone_check.html', checked=True, submitted_number=raw_number,
         display_number=display, score=score, severity=severity, reasons=reasons,
         api_status=api_result.get('status'), spoken_summary=spoken_summary,
+        corroboration_result=corroboration_result,
+    )
+
+
+@app.route('/preview-link', methods=['POST'])
+@login_required
+@limiter.limit("15 per hour")
+def preview_link():
+    """Sandboxed link preview (TinyFish Agent). Called on demand -- one
+    click, one link -- never automatically for every URL in an email,
+    since the Agent API is metered unlike Search/Fetch elsewhere in this
+    app. Returns JSON for the AJAX button in result.html."""
+    url = request.form.get('url', '').strip()
+    if not url:
+        return jsonify({'status': 'failed', 'message': 'No URL provided'}), 400
+    result = link_preview.safe_preview_link(url)
+    log_audit('link_previewed', target=url, detail=result.get('status'))
+    return jsonify(result)
+
+
+@app.route('/verify-site', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("30 per hour")
+def verify_site():
+    """'Is this the real site?' verification (TinyFish Search) -- the
+    elderly-safety check: compares a claimed brand/bank against its
+    actual official website and gives one plain-language verdict."""
+    if request.method == 'GET':
+        return render_template('verify_site.html', checked=False)
+
+    brand = request.form.get('brand', '').strip()
+    url = request.form.get('url', '').strip()
+    if not brand or not url:
+        return render_template(
+            'verify_site.html', checked=False,
+            error='Please enter both the brand name and the link.',
+            submitted_brand=brand, submitted_url=url,
+        )
+
+    result = site_verification.verify_official_site(brand, url)
+    log_audit('site_verified', target=url, detail=brand)
+
+    return render_template(
+        'verify_site.html', checked=True,
+        submitted_brand=brand, submitted_url=url, result=result,
     )
 
 

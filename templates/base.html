@@ -24,6 +24,7 @@
       <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ['index', 'workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-1"></i>Check a Call/Number</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='verify_site' }}" href="{{ url_for('verify_site') }}"><i class="fa-solid fa-building-shield me-1"></i>Verify a Website</a></li>
 
         {% set investigate_endpoints = ['dashboard','threat_map','threat_clusters','threat_anomalies','connect_mailbox'] %}
         <li class="nav-item dropdown">

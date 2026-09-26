@@ -1,0 +1,480 @@
+{% extends 'base.html' %}
+{% block title %}{{ case_ref }} — Analysis Result{% endblock %}
+{% block content %}
+{% set risk = result.risk_result %}
+{% set auth = result.auth_result %}
+{% set geo = result.geo_result %}
+{% set whois_r = result.whois_result %}
+{% set cl = result.classify_result %}
+{% set parsed = result.parsed_email %}
+{% set relay_trust = result.relay_trust_result %}
+
+<input type="hidden" id="csrfTokenValue" value="{{ csrf_token() }}">
+
+<div class="d-flex justify-content-between align-items-center mb-4 flex-wrap gap-2">
+  <div>
+    <h3 class="fw-bold mb-0">Analysis Result</h3>
+    <span class="text-muted">Case Ref: <code>{{ case_ref }}</code></span>
+  </div>
+  <div class="d-flex gap-2">
+    <button type="button" id="readAloudBtn" class="btn btn-outline-dark">
+      <i class="fa-solid fa-volume-high me-1"></i>Read verdict aloud
+    </button>
+    <a href="{{ url_for('download_report', case_ref=case_ref) }}" class="btn btn-outline-dark">
+      <i class="fa-solid fa-file-pdf me-1"></i>Download PDF Report
+    </a>
+    <a href="{{ url_for('dashboard') }}" class="btn btn-secondary"><i class="fa-solid fa-table-columns me-1"></i>Dashboard</a>
+  </div>
+</div>
+<div id="voiceSummary" class="d-none">
+  This email scored {{ risk.combined_score }} out of 100, a {{ risk.severity }} risk.
+  {% if auth.spf %}SPF: {{ auth.spf }}.{% endif %}
+  {% if auth.dkim %}DKIM: {{ auth.dkim }}.{% endif %}
+  {% if auth.dmarc %}DMARC: {{ auth.dmarc }}.{% endif %}
+</div>
+
+<div class="row g-3 mb-4">
+  <div class="col-md-4">
+    <div class="card verdict-card severity-{{ risk.severity|lower }} shadow-sm h-100">
+      <div class="card-body text-center">
+        <div class="score-circle">{{ risk.combined_score }}</div>
+        <h5 class="mt-3 mb-0">Combined Risk Score</h5>
+        <span class="badge severity-badge severity-{{ risk.severity|lower }} mt-2">{{ risk.severity }}</span>
+      </div>
+    </div>
+  </div>
+  <div class="col-md-8">
+    <div class="card shadow-sm h-100">
+      <div class="card-body">
+        <h6 class="text-muted mb-3">Score Breakdown</h6>
+        {% set breakdown_meta = {
+          'content_ai_ml': ('Content AI / ML', 30),
+          'content_nlp_cues': ('Content NLP Cues', 20),
+          'spf_dkim_dmarc_auth': ('SPF / DKIM / DMARC Auth', 30),
+          'blacklist_reputation': ('Blacklist / Reputation', 20),
+          'whois_domain_age': ('WHOIS Domain Age', 10),
+          'geo_anomaly': ('GeoIP Anomaly', 10),
+          'attachment_risk': ('Attachment Risk', 15),
+          'url_risk': ('URL Risk', 15),
+        } %}
+        {% for k, v in risk.breakdown.items() %}
+        {% set meta = breakdown_meta.get(k, (k.replace('_',' ')|title, 30)) %}
+        {% set label = meta[0] %}
+        {% set max_pts = meta[1] %}
+        <div class="mb-2">
+          <div class="d-flex justify-content-between small"><span>{{ label }}</span><span>{{ v }} / {{ max_pts }} pts</span></div>
+          <div class="progress" style="height:6px;"><div class="progress-bar bg-dark" style="width:{{ (v/max_pts*100) if max_pts else 0 }}%"></div></div>
+        </div>
+        {% endfor %}
+      </div>
+    </div>
+  </div>
+</div>
+
+<div class="row g-3">
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-robot me-2"></i>Content AI / NLP Analysis</div>
+      <div class="card-body">
+        <p><b>ML Phishing Probability:</b> {{ cl.ml_probability }}%</p>
+        {% set expl = cl.ml_explanation %}
+        {% if expl and (expl.toward_phishing or expl.toward_legitimate) %}
+        <p class="small text-muted mb-1">Why the model reached this score — strongest contributing terms:</p>
+        {% if expl.toward_phishing %}
+        <p class="small mb-1" style="color:#b91c1c;">Toward phishing:</p>
+        <div class="mb-2 d-flex flex-wrap gap-1">
+          {% for c in expl.toward_phishing %}
+          <span class="badge rounded-pill" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ c.token }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% if expl.toward_legitimate %}
+        <p class="small mb-1" style="color:#16a34a;">Toward legitimate:</p>
+        <div class="mb-3 d-flex flex-wrap gap-1">
+          {% for c in expl.toward_legitimate %}
+          <span class="badge rounded-pill" style="background:#dcfce7;color:#16a34a;font-weight:500;">{{ c.token }}</span>
+          {% endfor %}
+        </div>
+        {% endif %}
+        {% endif %}
+        {% if cl.red_flags %}
+          <ul class="mb-0">{% for f in cl.red_flags %}<li>{{ f }}</li>{% endfor %}</ul>
+        {% else %}
+          <p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>No significant NLP red flags detected.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-key me-2"></i>SPF / DKIM / DMARC Authentication</div>
+      <div class="card-body">
+        <table class="table table-sm mb-2">
+          <tr><td>SPF</td><td><span class="auth-pill auth-{{ auth.spf }}">{{ auth.spf }}</span></td></tr>
+          <tr><td>DKIM</td><td><span class="auth-pill auth-{{ auth.dkim }}">{{ auth.dkim }}</span></td></tr>
+          <tr><td>DMARC</td><td><span class="auth-pill auth-{{ auth.dmarc }}">{{ auth.dmarc }}</span></td></tr>
+          <tr><td>Published Policy</td><td>{{ auth.dmarc_published_policy or '—' }}</td></tr>
+        </table>
+        {% if auth.high_weight_flags %}
+          {% for f in auth.high_weight_flags %}
+          <div class="alert alert-danger py-2 px-3 small mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>{{ f }}</div>
+          {% endfor %}
+        {% else %}
+          <p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>Authentication checks passed.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-earth-asia me-2"></i>GeoLocation Intelligence</div>
+      <div class="card-body">
+        {% if geo.status == 'success' %}
+        <table class="table table-sm mb-0">
+          <tr><td>IP</td><td>{{ geo.ip }}</td></tr>
+          <tr><td>Country</td><td>{{ geo.country }} ({{ geo.country_code }})</td></tr>
+          <tr><td>Region / City</td><td>{{ geo.region }} / {{ geo.city }}</td></tr>
+          <tr><td>ISP / Org</td><td>{{ geo.isp }} / {{ geo.org }}</td></tr>
+          <tr><td>ASN</td><td>{{ geo.asn }}</td></tr>
+          <tr><td>Hosting Provider</td><td>{{ geo.is_hosting_provider }}</td></tr>
+        </table>
+        {% else %}
+        <p class="text-muted mb-0">{{ geo.message or 'GeoIP lookup unavailable.' }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-magnifying-glass-location me-2"></i>WHOIS Summary</div>
+      <div class="card-body">
+        {% if whois_r.status == 'success' %}
+        <table class="table table-sm mb-0">
+          <tr><td>Registrar</td><td>{{ whois_r.registrar }}</td></tr>
+          <tr><td>Creation Date</td>
+              <td>{{ whois_r.creation_date if whois_r.creation_date else 'Not disclosed by registry' }}</td></tr>
+          <tr><td>Domain Age</td>
+              <td>{{ (whois_r.domain_age_days ~ ' days') if whois_r.domain_age_days is not none else 'Not disclosed by registry' }}</td></tr>
+          <tr><td>Newly Registered</td><td>{{ whois_r.is_newly_registered }}</td></tr>
+        </table>
+        {% elif whois_r.status == 'not_registered' %}
+        <p class="text-danger mb-0"><i class="fa-solid fa-triangle-exclamation me-1"></i>{{ whois_r.message }}</p>
+        {% else %}
+        <p class="text-muted mb-0">{{ whois_r.message or 'WHOIS lookup unavailable.' }}</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-lg-6">
+    <div class="card shadow-sm h-100">
+      <div class="card-header"><i class="fa-solid fa-ban me-2"></i>Blacklist / Reputation Check</div>
+      <div class="card-body">
+        {% set pt = result.phishtank_result %}
+        {% set abuse = result.abuseipdb_result %}
+        {% if result.local_blacklist_hits %}
+          {% for hit in result.local_blacklist_hits %}
+          <div class="alert alert-danger py-2 px-3 small mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>Local blacklist: {{ hit.indicator }} ({{ hit.type }}) — {{ hit.reason }}</div>
+          {% endfor %}
+        {% endif %}
+        {% if pt and pt.hits %}
+          {% for hit in pt.hits %}
+          <div class="alert alert-danger py-2 px-3 small mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>PhishTank-verified phishing domain: <b>{{ hit.domain }}</b> (impersonating {{ hit.target }}, verified {{ hit.verified_time }})</div>
+          {% endfor %}
+        {% endif %}
+        {% if abuse and abuse.status == 'success' %}
+          <p class="mb-1 small">AbuseIPDB confidence score: <b>{{ abuse.abuse_confidence_score }}%</b> ({{ abuse.total_reports }} reports)</p>
+        {% endif %}
+        {% if not result.local_blacklist_hits and not (pt and pt.hits) and not (abuse and abuse.status == 'success') %}
+          <p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>No blacklist, PhishTank, or AbuseIPDB matches.</p>
+        {% endif %}
+        {% if pt and pt.dataset_size %}
+          <p class="text-muted small mb-0 mt-2">Checked sender domain and message URLs against {{ '{:,}'.format(pt.dataset_size) }} PhishTank-verified phishing domains.</p>
+        {% endif %}
+        {% if pt and pt.stale %}
+          <div class="alert alert-warning py-2 px-3 small mt-2 mb-0">
+            <i class="fa-solid fa-clock-rotate-left me-1"></i>
+            PhishTank snapshot is stale
+            {%- if pt.age_days is not none %} ({{ pt.age_days }} days old){% endif %} —
+            absence of a match here does not rule out a newly-listed phishing domain.
+            Run <code>ml_model/refresh_phishtank.py</code> to update it.
+          </div>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-globe me-2"></i>Web Corroboration
+        <span class="badge bg-secondary">Live via TinyFish</span>
+      </div>
+      <div class="card-body">
+        {% set wc = result.corroboration_result %}
+        {% if wc and wc.status == 'success' and wc.citations %}
+          <p class="small text-muted mb-2">Live web results for "<code>{{ wc.query }}</code>" —
+            complements the static PhishTank snapshot above with real-time signal.</p>
+          {% for c in wc.citations %}
+          <div class="small mb-2">
+            <a href="{{ c.url }}" target="_blank" rel="noopener">{{ c.title }}</a>
+            <div class="text-muted">{{ c.snippet }}</div>
+          </div>
+          {% endfor %}
+        {% elif wc and wc.status == 'success' %}
+          <p class="text-success mb-0"><i class="fa-solid fa-check me-1"></i>No live scam reports found for this domain.</p>
+        {% elif wc and wc.status == 'not_configured' %}
+          <p class="text-muted mb-0">Web corroboration is not configured (set <code>TINYFISH_API_KEY</code>).</p>
+        {% else %}
+          <p class="text-muted mb-0">Web corroboration unavailable{{ (': ' + wc.message) if wc and wc.message else '' }}.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-paperclip me-2"></i>Attachment Risk Analysis</div>
+      <div class="card-body">
+        {% set att = result.attachment_result %}
+        {% if att and att.count %}
+        <div class="table-responsive">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>Filename</th><th>Type</th><th>Size</th><th>SHA-256</th><th>Flags</th></tr></thead>
+            <tbody>
+              {% for a in att.attachments %}
+              <tr>
+                <td>{{ a.filename }}</td>
+                <td>{{ a.content_type }}</td>
+                <td>{{ (a.size_bytes / 1024) | round(1) }} KB</td>
+                <td><code class="small">{{ (a.sha256[:16] + '…') if a.sha256 else '—' }}</code></td>
+                <td>
+                  {% if a.risk_flags %}
+                    {% for f in a.risk_flags %}
+                    <span class="badge rounded-pill" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ f }}</span><br>
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-success small"><i class="fa-solid fa-check me-1"></i>No red flags</span>
+                  {% endif %}
+                </td>
+              </tr>
+              {% if a.is_image and a.image_forensics %}
+              <tr>
+                <td colspan="5" style="background:#f8fafc;">
+                  {% set imf = a.image_forensics %}
+                  {% if imf.analyzed %}
+                  <div class="small text-muted mb-1">
+                    <i class="fa-solid fa-magnifying-glass me-1"></i>Image tampering check (ELA + EXIF) —
+                    {{ imf.format }}, {{ imf.dimensions }}
+                  </div>
+                  <div class="row g-2 align-items-start">
+                    <div class="col-auto">
+                      {% if imf.ela_preview_base64 %}
+                      <img src="data:image/png;base64,{{ imf.ela_preview_base64 }}"
+                           alt="Error Level Analysis heatmap for {{ a.filename }}"
+                           style="width:100px;height:100px;object-fit:cover;border-radius:4px;border:1px solid #e2e8f0;">
+                      <div class="text-center text-muted" style="font-size:0.65rem;">ELA heatmap</div>
+                      {% endif %}
+                    </div>
+                    <div class="col small">
+                      {% if imf.ela_info.applicable %}
+                        <div>Mean error level: {{ imf.ela_info.mean_error_level }} · Peak: {{ imf.ela_info.max_error_level }} · Ratio: {{ imf.ela_info.anomaly_ratio }}x</div>
+                      {% else %}
+                        <div class="text-muted">{{ imf.ela_info.skipped_reason }}</div>
+                      {% endif %}
+                      {% if imf.exif_info.has_exif %}
+                        <div>EXIF present{% if imf.exif_info.software %} · Software: {{ imf.exif_info.software }}{% endif %}</div>
+                      {% else %}
+                        <div class="text-muted">No EXIF metadata present.</div>
+                      {% endif %}
+                    </div>
+                  </div>
+                  {% else %}
+                  <div class="small text-muted"><i class="fa-solid fa-circle-info me-1"></i>{{ imf.note }}</div>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endif %}
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0"><i class="fa-solid fa-check me-1"></i>No attachments found in this email.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-link me-2"></i>URL Risk Analysis</div>
+      <div class="card-body">
+        {% set ur = result.url_result %}
+        {% if ur and (ur.count or ur.anchor_mismatches) %}
+        {% if ur.count %}
+        <div class="table-responsive mb-2">
+          <table class="table table-sm mb-0">
+            <thead><tr><th>URL <span class="text-muted fw-normal">(defanged for safety)</span></th><th>Flags</th><th>Preview</th></tr></thead>
+            <tbody>
+              {% for u in ur.urls %}
+              <tr>
+                <td class="text-break small"><code>{{ u.defanged_url }}</code></td>
+                <td>
+                  {% if u.risk_flags %}
+                    {% for f in u.risk_flags %}
+                    <span class="badge rounded-pill" style="background:#fee2e2;color:#b91c1c;font-weight:500;">{{ f }}</span><br>
+                    {% endfor %}
+                  {% else %}
+                    <span class="text-success small"><i class="fa-solid fa-check me-1"></i>No red flags</span>
+                  {% endif %}
+                </td>
+                <td>
+                  <button type="button" class="btn btn-sm btn-outline-primary preview-link-btn" data-url="{{ u.url }}">
+                    <i class="fa-solid fa-eye"></i> Safe Preview
+                  </button>
+                  <div class="preview-result small mt-1"></div>
+                </td>
+              </tr>
+              {% endfor %}
+            </tbody>
+          </table>
+        </div>
+        {% endif %}
+        {% for m in ur.anchor_mismatches %}
+        <p class="text-danger small mb-1"><i class="fa-solid fa-triangle-exclamation me-1"></i>
+          Link text says "{{ m.text }}" but actually points to "<code>{{ m.href_defanged }}</code>"</p>
+        {% endfor %}
+        {% else %}
+        <p class="text-muted mb-0"><i class="fa-solid fa-check me-1"></i>No URLs found in this email.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-shield-halved me-2"></i>Trusted Relay Reconstruction — Earliest Reliable Hop</div>
+      <div class="card-body">
+        {% if relay_trust and relay_trust.hops %}
+        <div class="table-responsive mb-3">
+        <table class="table table-sm table-striped align-middle">
+          <thead>
+            <tr>
+              <th>Hop</th><th>Status</th><th>IP</th><th>ASN</th><th>Country</th>
+              <th>Timestamp</th><th>Consistent w/ next hop</th>
+            </tr>
+          </thead>
+          <tbody>
+          {% for h in relay_trust.hops %}
+            <tr class="{{ 'table-danger' if h.status == 'Untrusted' else ('table-warning' if h.status == 'Suspicious' else '') }}">
+              <td>{{ h.hop_number }}</td>
+              <td>
+                {% if h.status == 'Trusted' %}
+                  <span class="badge bg-success">Trusted</span>
+                {% elif h.status == 'Suspicious' %}
+                  <span class="badge bg-warning text-dark">Suspicious</span>
+                {% else %}
+                  <span class="badge bg-danger">Untrusted</span>
+                {% endif %}
+              </td>
+              <td class="small">{{ h.ip or ('private/none' if h.private_ip_only else '—') }}</td>
+              <td class="small">{{ h.asn or '—' }}</td>
+              <td class="small">{{ h.country or '—' }}</td>
+              <td class="small">{{ h.timestamp }}</td>
+              <td class="small">
+                {% if h.consistent_with_next_hop is none %}—
+                {% elif h.consistent_with_next_hop %}<i class="fa-solid fa-check text-success"></i>
+                {% else %}<i class="fa-solid fa-xmark text-danger"></i>
+                {% endif %}
+              </td>
+            </tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% for h in relay_trust.hops %}
+          {% for reason in h.reasons %}
+          <p class="small text-muted mb-1">Hop {{ h.hop_number }} ({{ h.status }}): {{ reason }}</p>
+          {% endfor %}
+        {% endfor %}
+
+        {% if relay_trust.earliest_reliable_node %}
+        {% set node = relay_trust.earliest_reliable_node %}
+        <div class="alert {{ 'alert-secondary' if node.unverified else 'alert-dark' }} mt-3 mb-0">
+          <h6 class="fw-bold mb-2">
+            {% if node.unverified %}
+              <i class="fa-solid fa-triangle-exclamation me-1"></i>Earliest Sending Node (unverified — no trusted checkpoint found)
+            {% else %}
+              <i class="fa-solid fa-circle-check me-1"></i>Earliest Reliable Sending Node
+            {% endif %}
+          </h6>
+          <p class="mb-1">
+            <strong>Earliest reliable source:</strong> {{ node.ip or 'Unknown' }},
+            {{ node.country or 'unknown country' }}{% if node.asn %}, {{ node.asn }}{% endif %}<br>
+            <strong>Confidence:</strong> {{ node.confidence }}%
+            {% if node.verified_by %}<br><span class="small text-muted">Verified by receiving server: {{ node.verified_by }}</span>{% endif %}
+          </p>
+          {% if relay_trust.trust_boundary_hop_number %}
+          <p class="small text-muted mb-0">
+            Earlier header entries (hop numbers greater than {{ relay_trust.trust_boundary_hop_number }})
+            are treated as untrusted because they appear before the first verified receiving server.
+          </p>
+          {% else %}
+          <p class="small text-muted mb-0">
+            No hop in this chain matched known/organizational mail infrastructure, so this source
+            could not be verified against a trusted checkpoint — treat it as a best-effort estimate only.
+          </p>
+          {% endif %}
+        </div>
+        {% endif %}
+        {% else %}
+        <p class="text-muted mb-0">No Received headers were available to reconstruct.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+
+  <div class="col-12">
+    <div class="card shadow-sm">
+      <div class="card-header"><i class="fa-solid fa-route me-2"></i>Full Header Relay Trace</div>
+      <div class="card-body">
+        {% if parsed.received_chain %}
+        <div class="table-responsive">
+        <table class="table table-sm table-striped">
+          <thead><tr><th>Hop</th><th>From</th><th>By</th><th>IPs</th><th>Timestamp</th></tr></thead>
+          <tbody>
+          {% for hop in parsed.received_chain %}
+            <tr><td>{{ hop.hop_number }}</td><td>{{ hop.from_host }}</td><td>{{ hop.by_host }}</td>
+                <td>{{ hop.ips|join(', ') }}</td><td class="small">{{ hop.timestamp }}</td></tr>
+          {% endfor %}
+          </tbody>
+        </table>
+        </div>
+        {% else %}
+        <p class="text-muted mb-0">No Received headers found in this message.</p>
+        {% endif %}
+      </div>
+    </div>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var readBtn = document.getElementById('readAloudBtn');
+  if (!MailFoxVoice.supported.speech) {
+    readBtn.classList.add('d-none');
+  } else {
+    readBtn.addEventListener('click', function () {
+      var el = document.getElementById('voiceSummary');
+      MailFoxVoice.speak(el ? el.textContent : '');
+    });
+  }
+});
+</script>
+<script src="{{ url_for('static', filename='js/link_preview.js') }}"></script>
+{% endblock %}
