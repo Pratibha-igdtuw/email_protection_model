@@ -1,0 +1,103 @@
+{% extends 'base.html' %}
+{% block title %}Check a Phone Number — MailFox{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="mb-4">
+      <h1 class="fw-bold" style="font-size:1.9rem;">Is this call genuine?</h1>
+      <p class="text-muted mb-0">
+        Check a phone number against reported scam numbers, this platform's own
+        blacklist, and (if configured) a live carrier/fraud lookup — the same
+        reputation-check approach used for suspicious emails, applied to calls.
+      </p>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <form action="{{ url_for('check_number') }}" method="post">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label fw-semibold" for="numberInput">Phone number that called or texted you</label>
+          <div class="input-group">
+            <input type="text" id="numberInput" name="number" class="form-control form-control-lg"
+                   placeholder="e.g. +1 (800) 555-0172" value="{{ submitted_number or '' }}" autocomplete="off">
+            <button type="button" id="dictateBtn" class="btn btn-outline-dark" aria-pressed="false">
+              <i class="fa-solid fa-microphone"></i> Speak instead
+            </button>
+          </div>
+          <div class="form-text">Don't want to type? Tap "Speak instead" and say the number out loud.</div>
+          <div class="d-grid mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="fa-solid fa-phone-volume me-2"></i>Check this number
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if checked %}
+    <div class="card verdict-card severity-{{ severity|lower }} shadow-sm mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2">
+          <div>
+            <h5 class="mb-1">{{ display_number }}</h5>
+            <span class="badge severity-badge severity-{{ severity|lower }}">{{ severity }} risk</span>
+            <span class="text-muted ms-2">Score: {{ score }} / 100</span>
+          </div>
+          <button type="button" id="readAloudBtn" class="btn btn-outline-dark">
+            <i class="fa-solid fa-volume-high me-1"></i>Read result aloud
+          </button>
+        </div>
+        <div id="voiceSummary" class="d-none">{{ spoken_summary }}</div>
+        <hr>
+        <h6 class="text-muted">Why:</h6>
+        <ul class="mb-0">
+          {% for reason in reasons %}
+          <li>{{ reason }}</li>
+          {% endfor %}
+        </ul>
+        {% if api_status == 'not_configured' %}
+        <p class="text-muted small mt-3 mb-0">
+          <i class="fa-solid fa-circle-info me-1"></i>Live carrier/fraud-score lookup isn't configured on this
+          deployment (set <code>IPQUALITYSCORE_API_KEY</code>) — this result is based on the local and
+          community-reported lists only.
+        </p>
+        {% endif %}
+      </div>
+    </div>
+    {% if severity in ('HIGH', 'MEDIUM') %}
+    <div class="alert alert-warning">
+      <strong>Before you call back or act on anything this number asked for:</strong> hang up, and if it claimed to
+      be your bank, a government agency, or a company you use, look up that organization's official number yourself
+      (from a statement or their real website) and call that instead — never a number the caller gave you.
+    </div>
+    {% endif %}
+    {% elif error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    <p class="text-muted small mt-3 mb-0">
+      Got a suspicious email instead? <a href="{{ url_for('workspace') }}">Run it through the full email analyzer</a>.
+    </p>
+  </div>
+</div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  MailFoxVoice.attachDictation(document.getElementById('dictateBtn'), document.getElementById('numberInput'));
+
+  var readBtn = document.getElementById('readAloudBtn');
+  if (readBtn) {
+    if (!MailFoxVoice.supported.speech) {
+      readBtn.classList.add('d-none');
+    } else {
+      readBtn.addEventListener('click', function () {
+        var el = document.getElementById('voiceSummary');
+        MailFoxVoice.speak(el ? el.textContent : '');
+      });
+    }
+  }
+});
+</script>
+{% endblock %}

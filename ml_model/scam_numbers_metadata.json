@@ -1,0 +1,5 @@
+{
+  "source": "Bundled sample community-reported scam-number snapshot",
+  "last_refreshed_at": "2026-09-24T00:00:00+00:00",
+  "note": "This is a small illustrative starter snapshot, not a live feed. Real deployments should replace ml_model/scam_numbers.csv with an export from a community scam-number list (e.g. a national do-not-call/robocall reporting body, or your own ScamNumberReport table dumped to CSV) and refresh it on a schedule, the same way ml_model/refresh_phishtank.py refreshes the PhishTank snapshot."
+}

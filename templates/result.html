@@ -15,11 +15,20 @@
     <span class="text-muted">Case Ref: <code>{{ case_ref }}</code></span>
   </div>
   <div class="d-flex gap-2">
+    <button type="button" id="readAloudBtn" class="btn btn-outline-dark">
+      <i class="fa-solid fa-volume-high me-1"></i>Read verdict aloud
+    </button>
     <a href="{{ url_for('download_report', case_ref=case_ref) }}" class="btn btn-outline-dark">
       <i class="fa-solid fa-file-pdf me-1"></i>Download PDF Report
     </a>
     <a href="{{ url_for('dashboard') }}" class="btn btn-secondary"><i class="fa-solid fa-table-columns me-1"></i>Dashboard</a>
   </div>
+</div>
+<div id="voiceSummary" class="d-none">
+  This email scored {{ risk.combined_score }} out of 100, a {{ risk.severity }} risk.
+  {% if auth.spf %}SPF: {{ auth.spf }}.{% endif %}
+  {% if auth.dkim %}DKIM: {{ auth.dkim }}.{% endif %}
+  {% if auth.dmarc %}DMARC: {{ auth.dmarc }}.{% endif %}
 </div>
 
 <div class="row g-3 mb-4">
@@ -379,4 +388,20 @@
     </div>
   </div>
 </div>
+{% endblock %}
+
+{% block scripts %}
+<script>
+document.addEventListener('DOMContentLoaded', function () {
+  var readBtn = document.getElementById('readAloudBtn');
+  if (!MailFoxVoice.supported.speech) {
+    readBtn.classList.add('d-none');
+  } else {
+    readBtn.addEventListener('click', function () {
+      var el = document.getElementById('voiceSummary');
+      MailFoxVoice.speak(el ? el.textContent : '');
+    });
+  }
+});
+</script>
 {% endblock %}

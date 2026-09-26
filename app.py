@@ -57,6 +57,7 @@ from modules import retrain as retrain_mod
 from modules import evidence_ingest
 from modules import timeline as timeline_mod
 from modules import anomaly as anomaly_mod
+from modules import phone_reputation
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
@@ -479,6 +480,34 @@ def logout():
 @login_required
 def workspace():
     return render_template('workspace.html')
+
+
+@app.route('/check-number', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("30 per hour")
+def check_number():
+    if request.method == 'GET':
+        return render_template('phone_check.html', checked=False)
+
+    raw_number = request.form.get('number', '')
+    normalized, display, error = phone_reputation.normalize_number(raw_number)
+    if error:
+        return render_template('phone_check.html', checked=False, error=error, submitted_number=raw_number)
+
+    local_hits = phone_reputation.check_local_blacklist(normalized, db.session, BlacklistEntry)
+    scam_list_result = phone_reputation.check_scam_number_list(normalized)
+    api_result = phone_reputation.check_ipqualityscore(normalized)
+    score, severity, reasons = phone_reputation.compute_phone_score(local_hits, scam_list_result, api_result)
+
+    log_audit('phone_number_checked', target=display, detail=f"severity={severity} score={score}")
+
+    spoken_summary = f"{display}. Risk level: {severity}. Score {score} out of 100. " + ' '.join(reasons)
+
+    return render_template(
+        'phone_check.html', checked=True, submitted_number=raw_number,
+        display_number=display, score=score, severity=severity, reasons=reasons,
+        api_status=api_result.get('status'), spoken_summary=spoken_summary,
+    )
 
 
 @app.route('/analyze', methods=['POST'])

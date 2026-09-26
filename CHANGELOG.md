@@ -1,5 +1,25 @@
 # Changelog
 
+## Unreleased — phone/caller check + voice accessibility layer
+
+**Added:** `/check-number` — a phone/caller reputation check ("is this call
+genuine?") answering the parallel question to email analysis, since the
+platform was email-only before this. Reuses the existing `BlacklistEntry`
+table (`indicator_type='phone'`, no migration needed since the column is
+already a generic string) plus a new bundled community-reported
+scam-number snapshot (`ml_model/scam_numbers.csv`) and an optional live
+lookup (`IPQUALITYSCORE_API_KEY`) — same three-tier optional-external-API
+pattern as `modules/blacklist.py` uses for IP/domain reputation. New
+`modules/phone_reputation.py`, `templates/phone_check.html`, nav entry.
+
+**Added:** a small voice accessibility layer (`static/js/voice.js`) on top
+of the browser's built-in Web Speech API — "read result aloud" on both the
+new phone-check page and the existing email `result.html`, and a "speak
+instead of typing" mic button for entering a phone number. No server
+round-trip and no new API key; progressively enhances and hides itself if
+the browser lacks the relevant API. Aimed at users (e.g. elderly users)
+who find listening/speaking easier than reading/typing a risk verdict.
+
 ## Unreleased — analyze-latency pass
 
 ## Unreleased — analyze-latency pass

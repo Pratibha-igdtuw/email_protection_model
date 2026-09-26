@@ -11,6 +11,7 @@ requests==2.32.3
 reportlab==4.2.2
 chardet<6
 python-whois==0.9.4
+phonenumbers==8.13.44  # parses/validates phone numbers for modules/phone_reputation.py (pure Python, no network)
 dnspython==2.6.1
 eml-parser==1.17.5
 Werkzeug==3.0.3

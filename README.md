@@ -124,6 +124,12 @@ instance/                    SQLite database (created at runtime)
 - **AbuseIPDB** blacklist check is optional: set the `ABUSEIPDB_API_KEY`
   environment variable to enable it. Without a key it just reports
   `not_configured` and the local blacklist table still works standalone.
+- **IPQualityScore** phone reputation check (`/check-number`, `modules/phone_reputation.py`)
+  is optional the same way: set `IPQUALITYSCORE_API_KEY` for a live
+  carrier/fraud-score lookup. Without a key, the check still runs against
+  the local blacklist (`BlacklistEntry` rows with `indicator_type='phone'`)
+  and the bundled community-reported scam-number snapshot
+  (`ml_model/scam_numbers.csv`).
 - **DMARC** policy is read from the `Authentication-Results` header first
   (works fully offline); a live DNS TXT lookup via `dnspython` is attempted
   as a secondary confirmation and silently skipped if unavailable.
@@ -324,6 +330,44 @@ issuance/use/revocation. Any admin (`User.is_admin`) can review it at
 log for accountability, not the tamper-evidence mechanism — that's the
 blockchain evidence ledger above, which exists specifically to make
 *case* evidence tampering detectable.
+
+## Phone number / caller check
+
+`/check-number` (linked from the nav as "Check a Call/Number") answers "is
+this call genuine?" for a phone number that called or texted the user, using
+the same three-tier reputation pattern as the email blacklist check:
+1. This platform's own `BlacklistEntry` table (`indicator_type='phone'`).
+2. `ml_model/scam_numbers.csv` — a bundled *starter* snapshot of
+   community-reported scam numbers (robocalls, bank/IRS impersonation,
+   one-ring toll fraud, etc.). There's no single free authoritative feed for
+   scam numbers the way PhishTank exists for phishing URLs, so this is meant
+   to be grown over time from sources like FTC DoNotCall complaint exports
+   or user-submitted reports, rather than auto-refreshed like PhishTank is.
+3. Optional live lookup via IPQualityScore's phone API (see above) for a
+   fraud score, carrier, and line type (VoIP lines combined with other
+   signals are a common spoofed-caller-ID pattern, so that's called out
+   specifically).
+
+Numbers are normalized with the `phonenumbers` package so formatting
+differences ("+1 800-555-0172" vs "8005550172") still match; it degrades to
+a plain digit-strip if that package isn't installed.
+
+## Voice accessibility layer
+
+`static/js/voice.js` wraps the browser's built-in Web Speech API (no server
+round-trip, no extra API key) and is shared across pages:
+- **Read result aloud** — on both `/check-number` and an email's
+  `result.html`, so the verdict can be listened to rather than read. Aimed
+  at users (e.g. elderly users) who find listening easier than reading a
+  score breakdown.
+- **Speak instead of typing** — the "Speak instead" mic button on
+  `/check-number` lets the user say the suspicious number out loud instead
+  of typing it.
+
+Both affordances check for browser support first and hide themselves if the
+browser doesn't implement the API (e.g. some non-Chromium browsers lack
+`SpeechRecognition`) -- voice is always an addition on top of the normal
+form/text flow, never a replacement for it.
 
 ## Next steps to extend
 
