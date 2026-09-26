@@ -2,6 +2,7 @@ import os
 import io
 import re
 import csv
+import json
 import uuid
 import time
 import logging
@@ -33,7 +34,8 @@ from functools import wraps
 import click
 
 from config import get_config
-from models import db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToken, ChainBlock, AuditLog
+from models import (db, User, Case, BlacklistEntry, FeedbackLog, MailboxOAuthToken,
+                     ChainBlock, AuditLog, Evidence)
 from modules import parser as parser_mod
 from modules import auth_check
 from modules import geoip as geoip_mod
@@ -52,12 +54,18 @@ from modules import chain_of_custody
 from modules import blockchain
 from modules import blockchain_anchor
 from modules import retrain as retrain_mod
+from modules import evidence_ingest
+from modules import timeline as timeline_mod
+from modules import anomaly as anomaly_mod
+from modules import phone_reputation
 
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INSTANCE_DIR = os.path.join(BASE_DIR, 'instance')
 REPORTS_DIR = os.path.join(BASE_DIR, 'case_reports')
+EVIDENCE_DIR = os.path.join(BASE_DIR, 'evidence_store')
 os.makedirs(INSTANCE_DIR, exist_ok=True)
 os.makedirs(REPORTS_DIR, exist_ok=True)
+os.makedirs(EVIDENCE_DIR, exist_ok=True)
 
 logging.basicConfig(level=logging.INFO)
 logger = logging.getLogger('email_threat_platform')
@@ -474,6 +482,34 @@ def workspace():
     return render_template('workspace.html')
 
 
+@app.route('/check-number', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("30 per hour")
+def check_number():
+    if request.method == 'GET':
+        return render_template('phone_check.html', checked=False)
+
+    raw_number = request.form.get('number', '')
+    normalized, display, error = phone_reputation.normalize_number(raw_number)
+    if error:
+        return render_template('phone_check.html', checked=False, error=error, submitted_number=raw_number)
+
+    local_hits = phone_reputation.check_local_blacklist(normalized, db.session, BlacklistEntry)
+    scam_list_result = phone_reputation.check_scam_number_list(normalized)
+    api_result = phone_reputation.check_ipqualityscore(normalized)
+    score, severity, reasons = phone_reputation.compute_phone_score(local_hits, scam_list_result, api_result)
+
+    log_audit('phone_number_checked', target=display, detail=f"severity={severity} score={score}")
+
+    spoken_summary = f"{display}. Risk level: {severity}. Score {score} out of 100. " + ' '.join(reasons)
+
+    return render_template(
+        'phone_check.html', checked=True, submitted_number=raw_number,
+        display_number=display, score=score, severity=severity, reasons=reasons,
+        api_status=api_result.get('status'), spoken_summary=spoken_summary,
+    )
+
+
 @app.route('/analyze', methods=['POST'])
 @login_required
 @limiter.limit("30 per hour")
@@ -538,6 +574,8 @@ def _analyze_and_render(raw_email_bytes):
         isp=geo.get('isp') if geo.get('status') == 'success' else None,
         evidence_sha256=evidence_hash,
         hash_generated_at=datetime.utcnow(),
+        attachment_flags='; '.join(result.get('attachment_result', {}).get('flags', [])) or None,
+        url_flags='; '.join(result.get('url_result', {}).get('flags', [])) or None,
         body_text=f"{parsed.get('subject','')} {parsed.get('body_plain','')}"[:5000],
         raw_email_path=raw_path,
     )
@@ -605,7 +643,10 @@ def dashboard():
 def case_detail(case_ref):
     case = _get_owned_case_or_404(case_ref)
     explanation = classifier.explain_saved_case(case)
-    return render_template('case_detail.html', case=case, explanation=explanation)
+    sibling_cases = Case.query.filter_by(owner_id=current_user.id).all()
+    incident_timeline = timeline_mod.build_case_timeline(case, sibling_cases=sibling_cases)
+    return render_template('case_detail.html', case=case, explanation=explanation,
+                            incident_timeline=incident_timeline)
 
 
 @app.route('/case/<case_ref>/notes', methods=['POST'])
@@ -704,6 +745,121 @@ def threat_clusters():
     all_cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.desc()).all()
     clusters = clustering.build_clusters(all_cases)
     return render_template('clusters.html', clusters=clusters)
+
+
+@app.route('/dashboard/anomalies')
+@login_required
+def threat_anomalies():
+    """Cross-case statistical anomaly detection (modules/anomaly.py) --
+    volume spikes and unusual sending-time patterns across the analyst's
+    whole case history, as opposed to every other check in the pipeline
+    which scores one email in isolation."""
+    all_cases = Case.query.filter_by(owner_id=current_user.id).order_by(Case.created_at.asc()).all()
+    anomalies = anomaly_mod.detect_anomalies(all_cases)
+    total = sum(len(v) for v in anomalies.values())
+    return render_template('anomalies.html', anomalies=anomalies, total=total, case_count=len(all_cases))
+
+
+# ---------------------------------------------------------------------------
+# Multi-source evidence ingestion (SMS exports, chat logs, images, other
+# files) -- feeds the same chain-of-custody + blockchain ledger used for
+# analyzed emails, so evidence isn't limited to email alone.
+# ---------------------------------------------------------------------------
+@app.route('/evidence')
+@login_required
+def evidence_list():
+    items = Evidence.query.filter_by(owner_id=current_user.id).order_by(Evidence.uploaded_at.desc()).all()
+    return render_template('evidence_list.html', items=items)
+
+
+@app.route('/evidence/upload', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("30 per hour")
+def evidence_upload():
+    own_cases = (Case.query.filter_by(owner_id=current_user.id)
+                 .order_by(Case.created_at.desc()).limit(200).all())
+
+    if request.method == 'POST':
+        evidence_type = request.form.get('evidence_type', '').strip()
+        linked_case_ref = request.form.get('linked_case_ref', '').strip() or None
+        notes = request.form.get('notes', '').strip() or None
+        file_storage = request.files.get('evidence_file')
+
+        if not file_storage or not file_storage.filename:
+            flash('Choose a file to upload.', 'error')
+            return redirect(url_for('evidence_upload'))
+
+        error = evidence_ingest.validate_upload(file_storage, evidence_type)
+        if error:
+            flash(error, 'error')
+            return redirect(url_for('evidence_upload'))
+
+        if linked_case_ref:
+            # Ownership check -- don't let a guessed/foreign case_ref
+            # link a piece of evidence into someone else's case.
+            owned = Case.query.filter_by(case_ref=linked_case_ref, owner_id=current_user.id).first()
+            if not owned:
+                flash('That case reference was not found in your workspace.', 'error')
+                return redirect(url_for('evidence_upload'))
+
+        raw_bytes = file_storage.read()
+        evidence_ref = f"EVID-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+        original_filename = secure_filename(file_storage.filename)
+        stored_ext = os.path.splitext(original_filename)[1].lower()
+        stored_path = os.path.join(EVIDENCE_DIR, f"{evidence_ref}{stored_ext}")
+        with open(stored_path, 'wb') as fh:
+            fh.write(raw_bytes)
+
+        sha256 = evidence_ingest.compute_sha256(raw_bytes)
+        metadata = evidence_ingest.extract_metadata(raw_bytes, evidence_type, original_filename)
+
+        item = Evidence(
+            owner_id=current_user.id,
+            evidence_ref=evidence_ref,
+            evidence_type=evidence_type,
+            original_filename=original_filename,
+            stored_path=stored_path,
+            file_size=len(raw_bytes),
+            mime_type=file_storage.content_type,
+            sha256=sha256,
+            metadata_json=evidence_ingest.metadata_to_json(metadata),
+            linked_case_ref=linked_case_ref,
+            notes=notes,
+        )
+        db.session.add(item)
+        db.session.commit()
+
+        # Same chain-of-custody + blockchain pipeline used for analyzed
+        # emails -- evidence_ref stands in for case_ref, so this item is
+        # mined into the exact same append-only evidence ledger.
+        chain_of_custody.build_custody_record(evidence_ref, stored_path, sha256,
+                                               analyst=current_user.email)
+
+        log_audit('evidence_uploaded', target=evidence_ref,
+                   detail=f"type={evidence_type} linked_case={linked_case_ref or '-'}")
+        flash(f'Evidence {evidence_ref} ingested and committed to the evidence ledger.', 'success')
+        return redirect(url_for('evidence_detail', evidence_ref=evidence_ref))
+
+    return render_template('evidence_upload.html', evidence_types=evidence_ingest.EVIDENCE_TYPES,
+                            own_cases=own_cases)
+
+
+@app.route('/evidence/<evidence_ref>')
+@login_required
+def evidence_detail(evidence_ref):
+    item = Evidence.query.filter_by(evidence_ref=evidence_ref).first_or_404()
+    if item.owner_id is not None and item.owner_id != current_user.id:
+        abort(404)
+
+    verified, current_hash = chain_of_custody.verify_integrity(item.stored_path, item.sha256)
+    block = blockchain.get_block_for_case(evidence_ref)
+    try:
+        metadata = json.loads(item.metadata_json) if item.metadata_json else {}
+    except (ValueError, TypeError):
+        metadata = {}
+
+    return render_template('evidence_detail.html', item=item, metadata=metadata,
+                            verified=verified, current_hash=current_hash, block=block)
 
 
 # ---------------------------------------------------------------------------

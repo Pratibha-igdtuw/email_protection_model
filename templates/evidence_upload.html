@@ -1,0 +1,58 @@
+{% extends 'base.html' %}
+{% block title %}Ingest Evidence — MailFox{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-9">
+    <div class="mb-4">
+      <h1 class="fw-bold" style="font-size:1.9rem;">Ingest evidence</h1>
+      <p class="text-muted mb-0">Not every piece of evidence is an email. Upload an SMS export, a chat log, a screenshot, or any other file — it gets a SHA-256 hash and is committed to the same blockchain evidence ledger as analyzed emails.</p>
+    </div>
+
+    <div class="card shadow-sm border-0">
+      <div class="card-body p-4">
+        <form action="{{ url_for('evidence_upload') }}" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+
+          <label class="form-label fw-semibold">Evidence type</label>
+          <div class="row g-2 mb-3">
+            {% for key, meta in evidence_types.items() %}
+            <div class="col-6 col-md-4">
+              <input type="radio" class="btn-check" name="evidence_type" id="type-{{ key }}" value="{{ key }}" {{ 'checked' if key=='file' }} required>
+              <label class="btn btn-outline-secondary w-100 text-start" for="type-{{ key }}">{{ meta.label }}</label>
+            </div>
+            {% endfor %}
+          </div>
+
+          <label class="form-label fw-semibold">File</label>
+          <input type="file" name="evidence_file" class="form-control mb-1" required>
+          <div class="form-text mb-3">Max 25 MB. Accepted extensions depend on the evidence type selected above.</div>
+
+          <label class="form-label fw-semibold">Link to an existing case <span class="text-muted fw-normal">(optional)</span></label>
+          <select name="linked_case_ref" class="form-select mb-3">
+            <option value="">— Not linked to a case —</option>
+            {% for c in own_cases %}
+            <option value="{{ c.case_ref }}">{{ c.case_ref }} — {{ c.subject or 'no subject' }}</option>
+            {% endfor %}
+          </select>
+
+          <label class="form-label fw-semibold">Notes <span class="text-muted fw-normal">(optional)</span></label>
+          <textarea name="notes" class="form-control mb-4" rows="3" placeholder="Context for this piece of evidence — where it came from, why it matters..."></textarea>
+
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="fa-solid fa-box-archive me-2"></i>Ingest Evidence
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="row g-3 mt-1">
+      <div class="col-md-3"><div class="feature-chip"><i class="fa-solid fa-fingerprint"></i><span>SHA-256 Hashing</span></div></div>
+      <div class="col-md-3"><div class="feature-chip"><i class="fa-solid fa-image"></i><span>EXIF Metadata</span></div></div>
+      <div class="col-md-3"><div class="feature-chip"><i class="fa-solid fa-link"></i><span>Blockchain Ledger</span></div></div>
+      <div class="col-md-3"><div class="feature-chip"><i class="fa-solid fa-list-check"></i><span>All Sources, One Ledger</span></div></div>
+    </div>
+  </div>
+</div>
+{% endblock %}

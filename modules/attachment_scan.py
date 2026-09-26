@@ -8,8 +8,15 @@ filename. This is heuristic red-flagging consistent with the rest of this
 pipeline (SPF/DKIM/domain-age/etc. are all heuristics too) -- it points an
 analyst at what to look at, not a malware-scanning/AV engine with signature
 matching, and it does not claim to be one.
+
+Image attachments additionally go through modules/image_forensics.py for
+Error Level Analysis + EXIF-consistency tampering checks -- those checks
+verify the *content* of an image hasn't been edited after the fact, which
+the filename/MIME checks in this module say nothing about.
 """
 import re
+
+from modules import image_forensics
 
 DANGEROUS_EXTENSIONS = {
     '.exe', '.scr', '.bat', '.cmd', '.com', '.pif', '.vbs', '.vbe',
@@ -69,6 +76,7 @@ def analyze_attachments(parsed_attachments):
         filename = att.get('filename') or ''
         content_type = (att.get('content_type') or '').lower()
         ext = _get_extension(filename)
+        payload = att.get('payload')  # raw bytes, see parser.py -- stripped before we return below
 
         is_dangerous_ext = ext in DANGEROUS_EXTENSIONS
         is_double_ext = _has_double_extension(filename)
@@ -94,16 +102,25 @@ def analyze_attachments(parsed_attachments):
             att_flags.append(f"Declared content-type ({content_type}) is inconsistent with a safe document")
             att_score += 8
 
-        results.append({
-            **att,
+        image_forensics_result = None
+        if image_forensics.is_image(filename, content_type):
+            image_forensics_result = image_forensics.analyze_image(payload, filename)
+            att_flags.extend(image_forensics_result['flags'])
+            att_score += image_forensics_result['risk_score']
+
+        att_out = {k: v for k, v in att.items() if k != 'payload'}
+        att_out.update({
             'extension': ext,
             'is_dangerous_extension': is_dangerous_ext,
             'is_double_extension': is_double_ext,
             'is_macro_enabled': is_macro,
             'is_archive': is_archive,
             'mime_mismatch': mime_mismatch,
+            'is_image': image_forensics_result is not None,
+            'image_forensics': image_forensics_result,
             'risk_flags': att_flags,
         })
+        results.append(att_out)
         flags.extend(f"{filename}: {f}" for f in att_flags)
         worst_score = max(worst_score, att_score)
 

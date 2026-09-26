@@ -93,6 +93,13 @@ def parse_email(raw_bytes_or_str):
                     'content_type': ctype,
                     'size_bytes': len(payload),
                     'sha256': hashlib.sha256(payload).hexdigest() if payload else None,
+                    # Raw bytes, kept only for the duration of this request so
+                    # attachment_scan.py can run image-tampering forensics
+                    # (modules/image_forensics.py) on image attachments.
+                    # attachment_scan.analyze_attachments() strips this key
+                    # back out before returning -- it is never persisted to
+                    # the DB, the PDF report, or any JSON API response.
+                    'payload': payload,
                 })
                 continue
 

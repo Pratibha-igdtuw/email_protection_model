@@ -24,9 +24,12 @@
       <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ['index', 'workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-1"></i>Connect Mailbox</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-1"></i>Check a Call/Number</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns me-1"></i>Dashboard</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='threat_map' }}" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia me-1"></i>Threat Map</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='threat_clusters' }}" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project me-1"></i>Clusters</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='threat_anomalies' }}" href="{{ url_for('threat_anomalies') }}"><i class="fa-solid fa-chart-line me-1"></i>Anomalies</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ['evidence_list','evidence_upload','evidence_detail'] }}" href="{{ url_for('evidence_list') }}"><i class="fa-solid fa-box-archive me-1"></i>Evidence</a></li>
         <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='blockchain_ledger' }}" href="{{ url_for('blockchain_ledger') }}"><i class="fa-solid fa-link me-1"></i>Evidence Ledger</a></li>
 
         {% if current_user.is_authenticated %}
@@ -95,5 +98,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
+<script src="{{ url_for('static', filename='js/voice.js') }}"></script>
+{% block scripts %}{% endblock %}
 </body>
 </html>

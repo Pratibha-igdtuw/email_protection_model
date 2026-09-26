@@ -1,0 +1,11 @@
+{# Expects `incident_timeline` — a list of dicts from modules/timeline.py #}
+<ul class="incident-timeline">
+  {% for ev in incident_timeline %}
+  <li>
+    <span class="tl-dot"><i class="fa-solid fa-{{ ev.icon }}"></i></span>
+    <div class="tl-title">{{ ev.title }}</div>
+    {% if ev.detail %}<div class="tl-detail">{{ ev.detail }}</div>{% endif %}
+    {% if ev.time %}<div class="tl-time">{{ ev.time.strftime('%d %b %Y, %H:%M') }}</div>{% endif %}
+  </li>
+  {% endfor %}
+</ul>

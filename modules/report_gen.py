@@ -11,7 +11,7 @@ from reportlab.lib import colors
 from reportlab.lib.units import mm
 from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
 from reportlab.platypus import (SimpleDocTemplate, Paragraph, Spacer, Table,
-                                 TableStyle, HRFlowable)
+                                 TableStyle, HRFlowable, Image as RLImage)
 
 SEVERITY_COLORS = {
     'Critical': colors.HexColor('#b91c1c'),
@@ -246,6 +246,42 @@ def generate_pdf_report(case, output_path, analyst_notes=""):
                 elements.append(Paragraph(f"&nbsp;&nbsp;SHA-256: {_esc(a['sha256'])}",
                                            ParagraphStyle('AttHash', parent=normal, fontSize=7.5,
                                                            textColor=colors.HexColor('#94a3b8'))))
+            imf = a.get('image_forensics')
+            if a.get('is_image') and imf:
+                if imf.get('analyzed'):
+                    ela = imf.get('ela_info', {})
+                    if ela.get('applicable'):
+                        elements.append(Paragraph(
+                            f"&nbsp;&nbsp;Error Level Analysis: mean {ela.get('mean_error_level')}, "
+                            f"peak {ela.get('max_error_level')}, ratio {ela.get('anomaly_ratio')}x"
+                            f"{' -- ANOMALY FLAGGED' if ela.get('anomaly_detected') else ''}",
+                            ParagraphStyle('ElaInfo', parent=normal, fontSize=8,
+                                           textColor=colors.HexColor('#b91c1c') if ela.get('anomaly_detected')
+                                           else colors.HexColor('#64748b'))))
+                        if imf.get('ela_preview_base64'):
+                            try:
+                                import base64
+                                import io as _io
+                                img_bytes = base64.b64decode(imf['ela_preview_base64'])
+                                rl_img = RLImage(_io.BytesIO(img_bytes), width=25 * mm, height=25 * mm)
+                                elements.append(rl_img)
+                            except Exception:
+                                pass  # missing heatmap image should never break report generation
+                    else:
+                        elements.append(Paragraph(
+                            f"&nbsp;&nbsp;{_esc(ela.get('skipped_reason', 'ELA not applicable.'))}",
+                            ParagraphStyle('ElaSkip', parent=normal, fontSize=7.5,
+                                           textColor=colors.HexColor('#94a3b8'))))
+                    exif_info = imf.get('exif_info', {})
+                    if exif_info.get('software'):
+                        elements.append(Paragraph(
+                            f"&nbsp;&nbsp;EXIF Software: {_esc(str(exif_info['software']))}",
+                            ParagraphStyle('ExifInfo', parent=normal, fontSize=7.5,
+                                           textColor=colors.HexColor('#64748b'))))
+                elif imf.get('note'):
+                    elements.append(Paragraph(f"&nbsp;&nbsp;{_esc(imf['note'])}",
+                                               ParagraphStyle('ImfNote', parent=normal, fontSize=7.5,
+                                                               textColor=colors.HexColor('#94a3b8'))))
     else:
         elements.append(Paragraph("No attachments found in this email.", normal))
 
