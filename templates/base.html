@@ -22,11 +22,11 @@
     </button>
     <div class="collapse navbar-collapse" id="nav">
       <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
-        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ['index', 'workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze</a></li>
-        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-1"></i>Check a Call/Number</a></li>
-        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='verify_site' }}" href="{{ url_for('verify_site') }}"><i class="fa-solid fa-building-shield me-1"></i>Verify a Website</a></li>
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='overview' }}" href="{{ url_for('overview') }}"><i class="fa-solid fa-house me-1"></i>Overview</a></li>
 
-        {% set investigate_endpoints = ['dashboard','threat_map','threat_clusters','threat_anomalies','connect_mailbox'] %}
+        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ['index', 'workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze</a></li>
+
+        {% set investigate_endpoints = ['dashboard','threat_map','threat_clusters','threat_anomalies','correlation_graph'] %}
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in investigate_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="fa-solid fa-table-columns me-1"></i>Investigate
@@ -36,11 +36,9 @@
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_map' }}" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia me-2"></i>Threat Map</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_clusters' }}" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project me-2"></i>Clusters</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_anomalies' }}" href="{{ url_for('threat_anomalies') }}"><i class="fa-solid fa-chart-line me-2"></i>Anomalies</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-2"></i>Connect Mailbox</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='correlation_graph' }}" href="{{ url_for('correlation_graph') }}"><i class="fa-solid fa-circle-nodes me-2"></i>Correlation Graph</a></li>
           </ul>
         </li>
-        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='overview' }}" href="{{ url_for('overview') }}"><i class="fa-solid fa-house me-1"></i>Overview</a></li>
 
         {% set evidence_endpoints = ['evidence_list','evidence_upload','evidence_detail','blockchain_ledger'] %}
         <li class="nav-item dropdown">
@@ -54,29 +52,15 @@
           </ul>
         </li>
 
-        {% set investigate_endpoints = ['dashboard','threat_map','threat_clusters','threat_anomalies','correlation_graph'] %}
+        {% set email_tools_endpoints = ['index','workspace','check_number','verify_site','connect_mailbox'] %}
         <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in investigate_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="fa-solid fa-table-columns me-1"></i>Investigate
-          </a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='correlation_graph' }}" href="{{ url_for('correlation_graph') }}"><i class="fa-solid fa-circle-nodes me-2"></i>Correlation Graph</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_clusters' }}" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project me-2"></i>Clusters (Cases + Evidence)</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_anomalies' }}" href="{{ url_for('threat_anomalies') }}"><i class="fa-solid fa-chart-line me-2"></i>Anomalies (Cases + Evidence)</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><h6 class="dropdown-header">Email Cases</h6></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns me-2"></i>Case Dashboard</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_map' }}" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia me-2"></i>Case Map</a></li>
-          </ul>
-        </li>
-
-        {% set analyze_endpoints = ['index','workspace','check_number','connect_mailbox'] %}
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in analyze_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
+          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in email_tools_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="fa-solid fa-envelope me-1"></i>Email Tools
           </a>
           <ul class="dropdown-menu">
             <li><a class="dropdown-item {{ 'active' if request.endpoint in ['index','workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-2"></i>Analyze an Email</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-2"></i>Check a Call/Number</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='verify_site' }}" href="{{ url_for('verify_site') }}"><i class="fa-solid fa-building-shield me-2"></i>Verify a Website</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-2"></i>Connect Mailbox</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-2"></i>Check a Call/Number</a></li>
           </ul>
