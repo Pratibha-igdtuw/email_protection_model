@@ -1,5 +1,5 @@
 {% extends 'base.html' %}
-{% block title %}Overview — MailFox{% endblock %}
+{% block title %}Overview — FORENSIQ{% endblock %}
 {% block content %}
 <div class="mb-4">
   <h3 class="fw-bold mb-1">Investigation Overview</h3>
@@ -38,27 +38,38 @@
       <a href="{{ url_for('blockchain_ledger') }}" class="small">{{ chain_length }} block(s) <i class="fa-solid fa-arrow-right ms-1"></i></a>
     </div></div>
   </div>
+  <div class="col-6 col-lg-3">
+    <div class="card shadow-sm h-100"><div class="card-body">
+      <div class="text-muted small">Forensic Findings</div>
+      <div class="fs-3 fw-bold {{ 'text-danger' if flagged_evidence_total else '' }}">{{ flagged_evidence_total }}</div>
+      <span class="small text-muted">image/document items flagged</span>
+    </div></div>
+  </div>
 </div>
 
 <div class="row g-3 mb-2">
-  <div class="col-lg-5">
+  <div class="col-lg-6">
     <div class="card shadow-sm h-100">
       <div class="card-header"><i class="fa-solid fa-layer-group me-2"></i>Case Severity</div>
       <div class="card-body">
         {% if case_count %}
-        <canvas id="severityChart" height="180"></canvas>
+        <div style="position:relative; height:220px;">
+          <canvas id="severityChart"></canvas>
+        </div>
         {% else %}
         <p class="text-muted small mb-0">No emails analyzed yet.</p>
         {% endif %}
       </div>
     </div>
   </div>
-  <div class="col-lg-7">
+  <div class="col-lg-6">
     <div class="card shadow-sm h-100">
       <div class="card-header"><i class="fa-solid fa-chart-pie me-2"></i>Evidence by Source Type</div>
       <div class="card-body">
         {% if evidence_type_counts %}
-        <canvas id="evidenceTypeChart" height="180"></canvas>
+        <div style="position:relative; height:220px;">
+          <canvas id="evidenceTypeChart"></canvas>
+        </div>
         {% else %}
         <p class="text-muted small mb-0">No standalone evidence uploaded yet — try
           <a href="{{ url_for('evidence_upload') }}">uploading an image, document, or chat export</a>.</p>
@@ -73,8 +84,17 @@
     <div class="card shadow-sm h-100">
       <div class="card-header"><i class="fa-solid fa-triangle-exclamation me-2"></i>Needs Attention</div>
       <div class="card-body" style="max-height: 340px; overflow-y: auto;">
-        {% if not anomaly_highlights and not correlations %}
-        <p class="text-muted small mb-0">Nothing flagged yet — anomalies and cross-source correlations will show up here.</p>
+        {% if not anomaly_highlights and not correlations and not flagged_evidence %}
+        <p class="text-muted small mb-0">Nothing flagged yet — anomalies, cross-source correlations, and forensic findings will show up here.</p>
+        {% endif %}
+        {% for f in flagged_evidence %}
+        <div class="anomaly-card p-2 mb-2 small">
+          <span class="badge bg-danger mb-1"><i class="fa-solid fa-magnifying-glass me-1"></i>{{ f.evidence_type|capitalize }} forensics</span>
+          <div><a href="{{ f.url }}">{{ f.filename[:40] }}</a> — {{ f.reason }}</div>
+        </div>
+        {% endfor %}
+        {% if flagged_evidence_total > flagged_evidence|length %}
+        <a href="{{ url_for('evidence_list') }}" class="small">See all {{ flagged_evidence_total }} flagged evidence items <i class="fa-solid fa-arrow-right ms-1"></i></a>
         {% endif %}
         {% for a in anomaly_highlights %}
         <div class="anomaly-card p-2 mb-2 small">
@@ -127,14 +147,16 @@
 <div class="card shadow-sm">
   <div class="card-header"><i class="fa-solid fa-bolt me-2"></i>Quick Actions</div>
   <div class="card-body d-flex flex-wrap gap-2">
+    <a href="{{ url_for('check_image') }}" class="btn btn-primary btn-sm"><i class="fa-solid fa-image me-1"></i>Check an Image</a>
+    <a href="{{ url_for('evidence_upload') }}" class="btn btn-primary btn-sm"><i class="fa-solid fa-upload me-1"></i>Upload Evidence</a>
     <a href="{{ url_for('workspace') }}" class="btn btn-primary btn-sm"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze Email</a>
-    <a href="{{ url_for('evidence_upload') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-upload me-1"></i>Upload Evidence</a>
     <a href="{{ url_for('correlation_graph') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-circle-nodes me-1"></i>Correlation Graph</a>
     <a href="{{ url_for('threat_map') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-earth-asia me-1"></i>Threat Map</a>
     <a href="{{ url_for('threat_clusters') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-diagram-project me-1"></i>Clusters</a>
     <a href="{{ url_for('threat_anomalies') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-chart-line me-1"></i>Anomalies</a>
     <a href="{{ url_for('blockchain_ledger') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-link me-1"></i>Evidence Ledger</a>
     <a href="{{ url_for('check_number') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-phone-volume me-1"></i>Check a Number</a>
+    <a href="{{ url_for('verify_site') }}" class="btn btn-outline-dark btn-sm"><i class="fa-solid fa-building-shield me-1"></i>Verify a Website</a>
   </div>
 </div>
 
@@ -152,7 +174,11 @@ new Chart(document.getElementById('severityChart'), {
       borderRadius: 6,
     }]
   },
-  options: { plugins: { legend: { display: false } }, scales: { y: { beginAtZero: true, ticks: { precision: 0 } } } }
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { display: false } },
+    scales: { y: { beginAtZero: true, ticks: { precision: 0 } } }
+  }
 });
 {% endif %}
 {% if evidence_type_counts %}
@@ -165,7 +191,10 @@ new Chart(document.getElementById('evidenceTypeChart'), {
       backgroundColor: ['#2c5ef6', '#16a34a', '#9333ea', '#d97706', '#0891b2', '#64748b'],
     }]
   },
-  options: { plugins: { legend: { position: 'right' } } }
+  options: {
+    responsive: true, maintainAspectRatio: false,
+    plugins: { legend: { position: 'right' } }
+  }
 });
 {% endif %}
 </script>

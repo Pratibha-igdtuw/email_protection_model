@@ -7,6 +7,8 @@ Flask-Limiter==3.8.0
 redis==5.0.8  # needed only when RATELIMIT_STORAGE_URI points at redis:// (multi-worker prod)
 scikit-learn>=1.5.1
 joblib==1.4.2
+numpy  # noise-texture heuristic in modules/ai_image_detection.py; already pulled in
+       # transitively by scikit-learn, listed explicitly since this module imports it directly
 requests==2.32.3
 reportlab==4.2.2
 chardet<6

@@ -23,6 +23,7 @@ unaltered "evidence" (an invoice, a contract, an ID scan) as an image can.
 import re
 
 from modules import image_forensics
+from modules import ai_image_detection
 from modules import document_forensics
 
 DANGEROUS_EXTENSIONS = {
@@ -110,10 +111,16 @@ def analyze_attachments(parsed_attachments):
             att_score += 8
 
         image_forensics_result = None
+        ai_generation_result = None
         if image_forensics.is_image(filename, content_type):
             image_forensics_result = image_forensics.analyze_image(payload, filename)
             att_flags.extend(image_forensics_result['flags'])
             att_score += image_forensics_result['risk_score']
+            # Deliberately NOT folded into att_flags/att_score above --
+            # "AI-generated" and "a real photo that was tampered with"
+            # are different findings and conflating them would
+            # misrepresent the evidence. See modules/ai_image_detection.py.
+            ai_generation_result = ai_image_detection.analyze_for_ai_generation(payload, filename)
 
         document_forensics_result = None
         if document_forensics.is_document(filename, content_type):
@@ -131,6 +138,7 @@ def analyze_attachments(parsed_attachments):
             'mime_mismatch': mime_mismatch,
             'is_image': image_forensics_result is not None,
             'image_forensics': image_forensics_result,
+            'ai_generation': ai_generation_result,
             'is_document': document_forensics_result is not None,
             'document_forensics': document_forensics_result,
             'risk_flags': att_flags,

@@ -37,6 +37,7 @@ rather than raising.
 """
 import base64
 import io
+import re
 
 IMAGE_EXTENSIONS = {'.jpg', '.jpeg', '.png', '.gif', '.bmp', '.tiff', '.tif', '.webp'}
 
@@ -64,6 +65,7 @@ ELA_ANOMALY_MEAN_CEILING = 40.0
 ELA_MIN_MEAN_FOR_RATIO = 1.0  # avoid a divide-by-near-zero blowup on near-blank images
 
 SOFTWARE_TAG_SCORE = 8
+XMP_CREATOR_TOOL_SCORE = 8
 TIMESTAMP_MISMATCH_SCORE = 6
 ELA_ANOMALY_SCORE = 10
 
@@ -86,6 +88,39 @@ def _channel_mean(channel_histogram):
         return 0.0
     weighted = sum(intensity * count for intensity, count in enumerate(channel_histogram))
     return weighted / total
+
+
+def _check_xmp_editor(img):
+    """Returns (flags, info). Design tools like Canva compose a final
+    image from a flat canvas and re-export it as one clean,
+    single-generation file -- there's no differential compression
+    history left for ELA to find, and most of these tools don't touch
+    the classic EXIF 'Software' tag either. But several (Canva
+    included) write their name into the XMP CreatorTool field instead,
+    a completely separate metadata block that _check_exif_consistency's
+    img.getexif() call never sees. Same idea as that check, aimed at
+    the right metadata block for tools that use it."""
+    info = {}
+    xmp_bytes = img.info.get('xmp')
+    xmp_text = img.info.get('XML:com.adobe.xmp')
+    if not xmp_text and xmp_bytes:
+        try:
+            xmp_text = xmp_bytes.decode('utf-8', errors='ignore')
+        except Exception:
+            xmp_text = None
+    if not xmp_text:
+        return [], info
+
+    flags = []
+    match = re.search(r'<xmp:CreatorTool>(.*?)</xmp:CreatorTool>', xmp_text, re.DOTALL)
+    creator_tool = match.group(1).strip() if match else None
+    if creator_tool:
+        info['xmp_creator_tool'] = creator_tool[:200]
+        if any(marker in creator_tool.lower() for marker in EDITING_SOFTWARE_MARKERS):
+            flags.append(
+                f"XMP CreatorTool metadata names a design/editing tool ('{creator_tool[:120]}') "
+                f"-- this file was composed and exported by that tool, not a direct camera/screenshot capture")
+    return flags, info
 
 
 def _check_exif_consistency(img):
@@ -190,8 +225,9 @@ def analyze_image(payload, filename):
 
     Returns a dict:
       {'analyzed': bool, 'format': str|None, 'dimensions': str|None,
-       'exif_info': {...}, 'ela_info': {...}, 'ela_preview_base64': str|None,
-       'flags': [human-readable strings], 'risk_score': int (0-24, caller
+       'exif_info': {...} (also carries the XMP CreatorTool check's fields),
+       'ela_info': {...}, 'ela_preview_base64': str|None,
+       'flags': [human-readable strings], 'risk_score': int (0-32, caller
        clamps into its own overall attachment scale), 'note': str|None}
 
     'note' is set when the check could not run at all (no Pillow, payload
@@ -226,7 +262,8 @@ def analyze_image(payload, filename):
     result['dimensions'] = f"{img.width}x{img.height}"
 
     exif_flags, exif_info = _check_exif_consistency(img)
-    result['exif_info'] = exif_info
+    xmp_flags, xmp_info = _check_xmp_editor(img)
+    result['exif_info'] = {**exif_info, **xmp_info}
 
     try:
         ela_flags, ela_info, preview_b64 = _error_level_analysis(img)
@@ -241,13 +278,16 @@ def analyze_image(payload, filename):
     # so the point value of each signal stays explicit and easy to tune.
     software_flagged = any('editor' in f for f in exif_flags)
     timestamp_flagged = any('differs from the original capture timestamp' in f for f in exif_flags)
+    xmp_flagged = bool(xmp_flags)
     if software_flagged:
         score += SOFTWARE_TAG_SCORE
     if timestamp_flagged:
         score += TIMESTAMP_MISMATCH_SCORE
+    if xmp_flagged:
+        score += XMP_CREATOR_TOOL_SCORE
     if ela_info.get('anomaly_detected'):
         score += ELA_ANOMALY_SCORE
 
-    result['flags'] = exif_flags + ela_flags
+    result['flags'] = exif_flags + xmp_flags + ela_flags
     result['risk_score'] = score
     return result

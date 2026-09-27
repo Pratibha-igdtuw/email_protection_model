@@ -63,10 +63,25 @@
           <span class="badge severity-badge severity-{{ 'critical' if fl >= 70 else 'high' if fl >= 40 else 'low' }}">{{ fl }}%</span>
         </div>
         {% endif %}
+        {% if metadata.ai_generation_score is defined %}
+        <div class="d-flex align-items-center gap-2 mb-1">
+          <span class="small text-muted fw-semibold"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>AI-generated image check:</span>
+          {% if metadata.likely_ai_generated %}
+          <span class="badge severity-badge severity-high">Likely AI-generated</span>
+          {% else %}
+          <span class="badge severity-badge severity-low">No generation signal found</span>
+          {% endif %}
+        </div>
+        {% if metadata.ai_generation_note %}
+        <p class="small text-muted mb-3">{{ metadata.ai_generation_note }}</p>
+        {% else %}
+        <div class="mb-3"></div>
+        {% endif %}
+        {% endif %}
         {% if metadata %}
         <table class="table table-sm mb-0">
           {% for k, v in metadata.items() %}
-          {% if k not in ['exif', 'flags', 'detected_phone_numbers', 'ai_flags'] %}
+          {% if k not in ['exif', 'flags', 'detected_phone_numbers', 'ai_flags', 'ai_generation_score', 'likely_ai_generated', 'ai_generation_flags', 'ai_generation_note'] %}
           <tr><td class="text-capitalize">{{ k.replace('_',' ') }}</td><td class="small">{{ v }}</td></tr>
           {% endif %}
           {% endfor %}
@@ -95,6 +110,12 @@
         <p class="small text-muted mt-3 mb-1"><i class="fa-solid fa-robot me-1"></i>AI content-risk flags:</p>
         {% for f in metadata.ai_flags %}
         <span class="badge rounded-pill d-block text-start mb-1" style="background:#fff7ed;color:#9a3412;font-weight:500;white-space:normal;">{{ f }}</span>
+        {% endfor %}
+        {% endif %}
+        {% if metadata.ai_generation_flags %}
+        <p class="small text-muted mt-3 mb-1"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>AI-generation evidence:</p>
+        {% for f in metadata.ai_generation_flags %}
+        <span class="badge rounded-pill d-block text-start mb-1" style="background:#f3e8ff;color:#6b21a8;font-weight:500;white-space:normal;">{{ f }}</span>
         {% endfor %}
         {% endif %}
         {% else %}

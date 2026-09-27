@@ -40,12 +40,14 @@
           </ul>
         </li>
 
-        {% set evidence_endpoints = ['evidence_list','evidence_upload','evidence_detail','blockchain_ledger'] %}
+        {% set evidence_endpoints = ['evidence_list','evidence_upload','evidence_detail','blockchain_ledger','check_image'] %}
         <li class="nav-item dropdown">
           <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in evidence_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
             <i class="fa-solid fa-box-archive me-1"></i>Evidence
           </a>
           <ul class="dropdown-menu">
+            <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_image' }}" href="{{ url_for('check_image') }}"><i class="fa-solid fa-image me-2"></i>Check an Image</a></li>
+            <li><hr class="dropdown-divider"></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='evidence_upload' }}" href="{{ url_for('evidence_upload') }}"><i class="fa-solid fa-upload me-2"></i>Ingest Evidence</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint in ['evidence_list','evidence_detail'] }}" href="{{ url_for('evidence_list') }}"><i class="fa-solid fa-box-archive me-2"></i>All Evidence</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='blockchain_ledger' }}" href="{{ url_for('blockchain_ledger') }}"><i class="fa-solid fa-link me-2"></i>Evidence Ledger</a></li>
@@ -58,11 +60,10 @@
             <i class="fa-solid fa-envelope me-1"></i>Email Tools
           </a>
           <ul class="dropdown-menu">
-            <li><a class="dropdown-item {{ 'active' if request.endpoint in ['index','workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-2"></i>Analyze an Email</a></li>
+            <li><a class="dropdown-item {{ 'active' if request.endpoint in ['index','workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-2"></i>Analyze</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-2"></i>Check a Call/Number</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='verify_site' }}" href="{{ url_for('verify_site') }}"><i class="fa-solid fa-building-shield me-2"></i>Verify a Website</a></li>
             <li><a class="dropdown-item {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-2"></i>Connect Mailbox</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-2"></i>Check a Call/Number</a></li>
           </ul>
         </li>
 

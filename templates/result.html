@@ -268,6 +268,28 @@
                 </td>
               </tr>
               {% endif %}
+              {% if a.is_image and a.ai_generation and a.ai_generation.analyzed %}
+              <tr>
+                <td colspan="5" style="background:#faf5ff;">
+                  {% set aig = a.ai_generation %}
+                  <div class="small text-muted mb-1">
+                    <i class="fa-solid fa-wand-magic-sparkles me-1"></i>AI-generated image check —
+                    {% if aig.likely_ai_generated %}
+                    <span class="badge severity-badge severity-high ms-1">Likely AI-generated</span>
+                    {% else %}
+                    <span class="badge severity-badge severity-low ms-1">No generation signal found</span>
+                    {% endif %}
+                  </div>
+                  {% if aig.flags %}
+                  {% for f in aig.flags %}
+                  <div class="small" style="color:#6b21a8;">{{ f }}</div>
+                  {% endfor %}
+                  {% elif aig.note %}
+                  <div class="small text-muted">{{ aig.note }}</div>
+                  {% endif %}
+                </td>
+              </tr>
+              {% endif %}
               {% if a.is_document and a.document_forensics %}
               <tr>
                 <td colspan="5" style="background:#f8fafc;">

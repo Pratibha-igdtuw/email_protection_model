@@ -19,6 +19,7 @@ import re
 
 from modules import document_forensics
 from modules import image_forensics
+from modules import ai_image_detection
 from modules import classifier
 
 EVIDENCE_TYPES = {
@@ -141,6 +142,20 @@ def _extract_image_metadata(raw_bytes, filename):
         # Don't overwrite an existing EXIF-parse note with this one --
         # keep whichever is more specific if both fired.
         meta.setdefault('note', tamper['note'])
+
+    # AI-generated-image check -- deliberately stored under its own keys,
+    # never merged into 'flags'/'tamper_risk_score' above. "This looks
+    # AI-generated" and "this real photo was edited" are different
+    # investigative findings; see modules/ai_image_detection.py.
+    ai_gen = ai_image_detection.analyze_for_ai_generation(raw_bytes, filename)
+    if ai_gen.get('analyzed'):
+        meta['ai_generation_score'] = ai_gen['ai_generation_score']
+        meta['likely_ai_generated'] = ai_gen['likely_ai_generated']
+        if ai_gen.get('flags'):
+            meta['ai_generation_flags'] = ai_gen['flags']
+        if ai_gen.get('note'):
+            meta['ai_generation_note'] = ai_gen['note']
+
     return meta
 
 

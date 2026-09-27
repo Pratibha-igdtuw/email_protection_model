@@ -47,8 +47,8 @@
   <div class="mkt-shell">
     <div class="row align-items-center g-5">
       <div class="col-lg-6">
-        <h1>One platform to collect, authenticate and correlate digital evidence — from any source.</h1>
-        <p class="lead">Emails, images, PDFs, Word documents, chat and SMS exports — bring in any of it. Source-appropriate forensic checks feed one cross-evidence correlation graph and a blockchain-anchored chain of custody, so scattered evidence becomes one investigable case file.</p>
+        <h1>One platform to collect, analyse, authenticate and correlate digital evidence — from any source.</h1>
+        <p class="lead">Emails, images, PDFs, Word documents, chat and SMS exports — bring in any of it. Source-appropriate forensic checks, live web corroboration, and cross-evidence correlation feed one case file with a blockchain-anchored chain of custody, so scattered evidence becomes one investigable story.</p>
         <div class="hero-actions">
           <a href="{{ url_for('signup') }}" class="btn btn-primary btn-lg">Start investigating free</a>
           <a href="{{ url_for('login') }}" class="btn btn-outline-dark btn-lg">Log in</a>
@@ -57,6 +57,7 @@
           <span><i class="fa-solid fa-circle-check"></i>Image & document tamper detection</span>
           <span><i class="fa-solid fa-circle-check"></i>Cross-evidence correlation graph</span>
           <span><i class="fa-solid fa-circle-check"></i>Blockchain-anchored evidence hash</span>
+          <span><i class="fa-solid fa-circle-check"></i>Live web corroboration</span>
           <span><i class="fa-solid fa-circle-check"></i>Explainable AI content classifier</span>
         </div>
       </div>
@@ -108,83 +109,107 @@
 <!-- Capabilities -->
 <section class="section" id="capabilities">
   <div class="mkt-shell">
-    <div class="row g-5">
-      <div class="col-lg-4">
-        <div class="section-head mb-0">
-          <h2>One investigation engine, every evidence type</h2>
-          <p>FORENSIQ runs the forensic checks an investigator would — content, authentication, origin, integrity and cross-source correlation — on emails, images, documents and chat/SMS exports alike, and merges the results into one case file instead of a dozen separate tools.</p>
+    <div class="section-head" style="max-width: 720px;">
+      <h2>One investigation engine, every evidence type</h2>
+      <p>FORENSIQ runs the forensic checks an investigator would — content, authentication, origin, integrity and cross-source correlation — on emails, images, documents and chat/SMS exports alike, and merges the results into one case file instead of a dozen separate tools.</p>
+    </div>
+    <div class="capability-grid">
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-circle-nodes"></i></div>
+        <div>
+          <h4>Cross-evidence correlation graph</h4>
+          <p>Every analyzed email and every uploaded item feeds one entity graph — a sender, domain, IP or phone number shared across an email and an unrelated screenshot surfaces automatically as a correlation point.</p>
         </div>
       </div>
-      <div class="col-lg-8">
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-circle-nodes"></i></div>
-          <div>
-            <h4>Cross-evidence correlation graph</h4>
-            <p>Every analyzed email and every uploaded item feeds one entity graph — a sender, domain, IP or phone number shared across an email and an unrelated screenshot surfaces automatically as a correlation point.</p>
-          </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-link"></i></div>
+        <div>
+          <h4>Blockchain-anchored chain of custody</h4>
+          <p>Every piece of evidence gets a SHA-256 hash the moment it's ingested, chained into an append-only ledger with optional on-chain anchoring, so integrity holds up under scrutiny.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-link"></i></div>
-          <div>
-            <h4>Blockchain-anchored chain of custody</h4>
-            <p>Every piece of evidence gets a SHA-256 hash the moment it's ingested, chained into an append-only ledger with optional on-chain anchoring, so integrity holds up under scrutiny.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-image"></i></div>
+        <div>
+          <h4>Image tamper & authenticity check</h4>
+          <p>Error Level Analysis plus EXIF/XMP-consistency checks flag recompression artifacts, design-tool fingerprints and metadata mismatches on any uploaded image or email attachment.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-image"></i></div>
-          <div>
-            <h4>Image tamper & authenticity check</h4>
-            <p>Error Level Analysis plus EXIF-consistency checks flag recompression artifacts and metadata mismatches on any uploaded image or email attachment.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-wand-magic-sparkles"></i></div>
+        <div>
+          <h4>AI-generated image detection</h4>
+          <p>Checks image metadata for embedded generation provenance (Stable Diffusion/ComfyUI prompt data, C2PA content-source declarations, known generator tool tags) plus a supplementary noise-texture signal — flagged as AI-generated only when real provenance evidence is found, not on the weak signal alone.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-file-shield"></i></div>
-          <div>
-            <h4>PDF & Word tamper check</h4>
-            <p>Creation/modification-date mismatches, known editing-tool fingerprints and incremental-save detection flag a document that's been altered after it was first produced.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-file-shield"></i></div>
+        <div>
+          <h4>PDF & Word tamper check</h4>
+          <p>Creation/modification-date mismatches, known editing-tool fingerprints and incremental-save detection flag a document that's been altered after it was first produced.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-robot"></i></div>
-          <div>
-            <h4>Explainable AI content classifier</h4>
-            <p>A trained model reads subject and body for phishing language, urgency cues and credential-harvesting patterns, and shows the exact words that drove each verdict — not just a score.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-robot"></i></div>
+        <div>
+          <h4>Explainable AI content classifier</h4>
+          <p>A trained model reads for phishing language, urgency cues and credential-harvesting patterns — across email subject/body <em>and</em> SMS/chat evidence text — and shows the exact words that drove each verdict, not just a score.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-key"></i></div>
-          <div>
-            <h4>SPF / DKIM / DMARC authentication</h4>
-            <p>Parses Authentication-Results and Received headers to verify the sender is who the domain says it is, and flags a missing or failing policy.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-satellite-dish"></i></div>
+        <div>
+          <h4>Live web corroboration</h4>
+          <p>Cross-checks a domain or phone number against the live web — not just a static snapshot — surfacing real-time scam reports with citation links an analyst can hand to a case file.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-earth-asia"></i></div>
-          <div>
-            <h4>GeoIP, WHOIS & brand mismatch</h4>
-            <p>Traces the originating IP to a country, ISP and ASN, checks domain registration age, and flags it when a "local bank" email actually originates from unrelated infrastructure abroad.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-link-slash"></i></div>
+        <div>
+          <h4>Sandboxed link preview</h4>
+          <p>Visits a suspicious link inside an isolated browser — never the investigator's real IP — and reports in plain language what it does, whether it asks for a password or one-time code, and where it ends up after redirects.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-ban"></i></div>
-          <div>
-            <h4>Blacklist, PhishTank & AbuseIPDB cross-check</h4>
-            <p>Checks the originating IP and domain against your own blacklist, PhishTank, and AbuseIPDB reports before scoring the case.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-building-shield"></i></div>
+        <div>
+          <h4>Brand vs. official-site verification</h4>
+          <p>Name a brand and paste a link — get one plain-language verdict on whether it's really that company's site. Built for non-technical and elderly users to self-check a suspicious message in seconds.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-paperclip"></i></div>
-          <div>
-            <h4>Attachment & URL risk scanning</h4>
-            <p>Flags dangerous or double extensions, macro-enabled Office files and MIME-type mismatches on every attachment, and screens links against known shorteners and brand-typosquat patterns.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-key"></i></div>
+        <div>
+          <h4>SPF / DKIM / DMARC authentication</h4>
+          <p>Parses Authentication-Results and Received headers to verify the sender is who the domain says it is, and flags a missing or failing policy.</p>
         </div>
-        <div class="capability-row">
-          <div class="cap-icon"><i class="fa-solid fa-diagram-project"></i></div>
-          <div>
-            <h4>Campaign clustering & anomaly detection</h4>
-            <p>Groups cases that share an IP, ASN or sender domain into a campaign, and flags statistical volume or timing anomalies against each sender's own history.</p>
-          </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-earth-asia"></i></div>
+        <div>
+          <h4>GeoIP, WHOIS & brand mismatch</h4>
+          <p>Traces the originating IP to a country, ISP and ASN, checks domain registration age, and flags it when a "local bank" email actually originates from unrelated infrastructure abroad.</p>
+        </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-ban"></i></div>
+        <div>
+          <h4>Blacklist, PhishTank & AbuseIPDB cross-check</h4>
+          <p>Checks the originating IP and domain against your own blacklist, PhishTank, and AbuseIPDB reports before scoring the case.</p>
+        </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-paperclip"></i></div>
+        <div>
+          <h4>Attachment & URL risk scanning</h4>
+          <p>Flags dangerous or double extensions, macro-enabled Office files and MIME-type mismatches on every attachment, and screens links against known shorteners and brand-typosquat patterns.</p>
+        </div>
+      </div>
+      <div class="capability-card">
+        <div class="cap-icon"><i class="fa-solid fa-diagram-project"></i></div>
+        <div>
+          <h4>Campaign clustering & anomaly detection</h4>
+          <p>Groups cases <em>and</em> evidence items that share an IP, ASN, sender domain or phone number into a campaign, and flags statistical volume or timing anomalies against each entity's own history — a repeat number across two chat-log uploads can trigger this with no email involved at all.</p>
         </div>
       </div>
     </div>

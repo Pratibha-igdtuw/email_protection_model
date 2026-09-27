@@ -731,6 +731,33 @@ def overview():
     anomaly_highlights = (anomalies['volume_by_domain'] + anomalies['volume_by_country']
                            + anomalies['timing'])[:5]
 
+    # Forensic findings on standalone Evidence (image ELA/EXIF tamper,
+    # AI-generation, document tamper) previously never reached this page --
+    # they only ever showed up one item at a time on evidence_detail.html.
+    # "Needs Attention" is where a judge looks for "what did the pipeline
+    # find," so evidence-level flags belong here alongside case anomalies.
+    flagged_evidence = []
+    for e in all_evidence:
+        try:
+            em = json.loads(e.metadata_json) if e.metadata_json else {}
+        except (ValueError, TypeError):
+            continue
+        reasons = []
+        if em.get('flags'):
+            reasons.append(f"tamper signal: {em['flags'][0]}")
+        if em.get('likely_ai_generated'):
+            reasons.append('likely AI-generated')
+        if reasons:
+            flagged_evidence.append({
+                'ref': e.evidence_ref,
+                'filename': e.original_filename or e.evidence_ref,
+                'evidence_type': e.evidence_type,
+                'reason': '; '.join(reasons),
+                'url': url_for('evidence_detail', evidence_ref=e.evidence_ref),
+            })
+    flagged_evidence_total = len(flagged_evidence)
+    flagged_evidence = flagged_evidence[:5]
+
     graph = correlation_graph_mod.build_graph(all_cases, all_evidence)
     correlations = correlation_graph_mod.find_correlations(graph)[:5]
 
@@ -760,6 +787,7 @@ def overview():
         severity_counts=severity_counts, evidence_type_counts=dict(evidence_type_counts),
         cluster_summary=cluster_summary, anomaly_total=anomaly_total,
         anomaly_highlights=anomaly_highlights, correlations=correlations,
+        flagged_evidence=flagged_evidence, flagged_evidence_total=flagged_evidence_total,
         chain_valid=chain_valid, chain_length=chain_length,
         activity=activity,
     )
@@ -990,12 +1018,83 @@ def evidence_list():
     return render_template('evidence_list.html', items=items)
 
 
+@app.route('/check-image', methods=['GET', 'POST'])
+@login_required
+@limiter.limit("30 per hour")
+def check_image():
+    """Dedicated, single-purpose image forensics tool -- same UX pattern
+    as /check-number and /verify-site (upload one thing, get one instant
+    verdict), instead of image forensics only being reachable as one of
+    six radio options buried inside the generic "Ingest Evidence" form.
+    The check still saves the image as a real Evidence row through the
+    exact same pipeline evidence_upload() uses, so the result also shows
+    up in the evidence ledger, Overview's "Forensic Findings" count, and
+    the correlation graph -- this is a friendlier front door onto the
+    same evidence pipeline, not a separate, disconnected code path."""
+    if request.method == 'GET':
+        return render_template('check_image.html', checked=False)
+
+    file_storage = request.files.get('image_file')
+    if not file_storage or not file_storage.filename:
+        return render_template('check_image.html', checked=False, error='Choose an image to check.')
+
+    error = evidence_ingest.validate_upload(file_storage, 'image')
+    if error:
+        return render_template('check_image.html', checked=False, error=error)
+
+    raw_bytes = file_storage.read()
+    evidence_ref = f"EVID-{datetime.utcnow().strftime('%Y%m%d')}-{uuid.uuid4().hex[:6].upper()}"
+    original_filename = secure_filename(file_storage.filename)
+    stored_ext = os.path.splitext(original_filename)[1].lower()
+    stored_path = os.path.join(EVIDENCE_DIR, f"{evidence_ref}{stored_ext}")
+    with open(stored_path, 'wb') as fh:
+        fh.write(raw_bytes)
+
+    sha256 = evidence_ingest.compute_sha256(raw_bytes)
+    metadata = evidence_ingest.extract_metadata(raw_bytes, 'image', original_filename)
+
+    item = Evidence(
+        owner_id=current_user.id,
+        evidence_ref=evidence_ref,
+        evidence_type='image',
+        original_filename=original_filename,
+        stored_path=stored_path,
+        file_size=len(raw_bytes),
+        mime_type=file_storage.content_type,
+        sha256=sha256,
+        metadata_json=evidence_ingest.metadata_to_json(metadata),
+        notes='Checked via the Check an Image quick tool.',
+    )
+    db.session.add(item)
+    db.session.commit()
+
+    chain_of_custody.build_custody_record(evidence_ref, stored_path, sha256,
+                                           analyst=current_user.email)
+
+    log_audit('image_checked', target=evidence_ref,
+               detail=f"likely_ai_generated={metadata.get('likely_ai_generated', False)} "
+                      f"flags={len(metadata.get('flags', []))}")
+
+    return render_template(
+        'check_image.html', checked=True, evidence_ref=evidence_ref,
+        original_filename=original_filename, metadata=metadata,
+    )
+
+
 @app.route('/evidence/upload', methods=['GET', 'POST'])
 @login_required
 @limiter.limit("30 per hour")
 def evidence_upload():
     own_cases = (Case.query.filter_by(owner_id=current_user.id)
                  .order_by(Case.created_at.desc()).limit(200).all())
+    # 'email' stays a valid, supported type in EVIDENCE_TYPES/validate_upload
+    # (defensive -- nothing should break if it's ever posted directly), but
+    # it's deliberately left off the picker below: Analyze (/app) is the one
+    # front door for raw emails, and offering "Email" here too meant two
+    # different buttons silently did the same thing, which is exactly the
+    # "isn't this repetitive?" confusion this page used to cause.
+    picker_evidence_types = {k: v for k, v in evidence_ingest.EVIDENCE_TYPES.items() if k != 'email'}
+    preselected_case_ref = request.args.get('case_ref', '').strip()
 
     if request.method == 'POST':
         evidence_type = request.form.get('evidence_type', '').strip()
@@ -1087,8 +1186,8 @@ def evidence_upload():
         flash(f'Evidence {evidence_ref} ingested and committed to the evidence ledger.', 'success')
         return redirect(url_for('evidence_detail', evidence_ref=evidence_ref))
 
-    return render_template('evidence_upload.html', evidence_types=evidence_ingest.EVIDENCE_TYPES,
-                            own_cases=own_cases)
+    return render_template('evidence_upload.html', evidence_types=picker_evidence_types,
+                            own_cases=own_cases, preselected_case_ref=preselected_case_ref)
 
 
 @app.route('/evidence/<evidence_ref>')

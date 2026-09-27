@@ -1,0 +1,106 @@
+{% extends 'base.html' %}
+{% block title %}Check an Image — FORENSIQ{% endblock %}
+{% block content %}
+<div class="row justify-content-center">
+  <div class="col-lg-8">
+    <div class="mb-4">
+      <h1 class="fw-bold" style="font-size:1.9rem;">Is this image real, or edited, or AI-generated?</h1>
+      <p class="text-muted mb-0">
+        Upload a photo or screenshot for an instant forensic read: Error Level Analysis and EXIF-consistency
+        checks for tampering, plus a check for known AI-image-generator provenance metadata (Stable Diffusion,
+        ComfyUI, and similar tools) — the same checks this platform runs on email attachments, run directly on
+        a standalone image. The image is hashed and committed to the evidence ledger either way, so this
+        result is preserved with a verifiable chain of custody.
+      </p>
+    </div>
+
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <form action="{{ url_for('check_image') }}" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <label class="form-label fw-semibold" for="imageInput">Image file</label>
+          <input type="file" id="imageInput" name="image_file" class="form-control form-control-lg"
+                 accept="image/*" required>
+          <div class="form-text">JPEG, PNG, WebP, GIF, BMP, or TIFF. Max 25 MB.</div>
+          <div class="d-grid mt-4">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="fa-solid fa-magnifying-glass me-2"></i>Check this image
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    {% if error %}
+    <div class="alert alert-danger">{{ error }}</div>
+    {% endif %}
+
+    {% if checked %}
+    {% set is_flagged = metadata.get('likely_ai_generated') or metadata.get('flags') %}
+    <div class="card verdict-card {{ 'severity-high' if is_flagged else 'severity-low' }} shadow-sm mb-4">
+      <div class="card-body">
+        <div class="d-flex justify-content-between align-items-start flex-wrap gap-2 mb-2">
+          <div>
+            <h5 class="mb-1">{{ original_filename }}</h5>
+            {% if is_flagged %}
+            <span class="badge severity-badge severity-high">Flagged for review</span>
+            {% else %}
+            <span class="badge severity-badge severity-low">No tampering or AI-generation signals found</span>
+            {% endif %}
+          </div>
+          <a href="{{ url_for('evidence_detail', evidence_ref=evidence_ref) }}" class="btn btn-outline-dark btn-sm">
+            <i class="fa-solid fa-box-archive me-1"></i>View full evidence record
+          </a>
+        </div>
+
+        <hr>
+        <h6 class="text-muted"><i class="fa-solid fa-stamp me-1"></i>Tamper check (ELA + EXIF)</h6>
+        {% if metadata.get('flags') %}
+        <ul class="mb-2">
+          {% for f in metadata.flags %}
+          <li>{{ f }}</li>
+          {% endfor %}
+        </ul>
+        {% elif metadata.get('tamper_analyzed') %}
+        <p class="small text-muted mb-2">No tampering signals found. Tamper risk score: {{ metadata.get('tamper_risk_score', 0) }}/100.</p>
+        {% else %}
+        <p class="small text-muted mb-2">Tamper analysis could not run on this file{{ ': ' + metadata.note if metadata.get('note') else '.' }}</p>
+        {% endif %}
+
+        <h6 class="text-muted mt-3"><i class="fa-solid fa-wand-magic-sparkles me-1"></i>AI-generated image check</h6>
+        {% if metadata.get('likely_ai_generated') %}
+        <p class="mb-2"><span class="badge severity-badge severity-high">Likely AI-generated</span>
+          <span class="text-muted small ms-2">score {{ metadata.get('ai_generation_score', 0) }}/100</span></p>
+        {% elif metadata.get('ai_generation_score') is defined %}
+        <p class="small text-muted mb-2">No strong AI-generation provenance signal found (score {{ metadata.get('ai_generation_score', 0) }}/100). A low score doesn't rule out AI generation — it only means no known generator fingerprint was found in this file's metadata.</p>
+        {% else %}
+        <p class="small text-muted mb-2">AI-generation check could not run on this file.</p>
+        {% endif %}
+        {% if metadata.get('ai_generation_flags') %}
+        <ul class="small mb-2">
+          {% for f in metadata.ai_generation_flags %}
+          <li>{{ f }}</li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+
+        {% if metadata.get('has_exif') %}
+        <p class="small text-muted mt-3 mb-0"><i class="fa-solid fa-circle-info me-1"></i>This image carries EXIF metadata — see the full evidence record for the raw fields.</p>
+        {% endif %}
+      </div>
+    </div>
+    {% if is_flagged %}
+    <div class="alert alert-warning">
+      <strong>This image was flagged.</strong> Treat it as unverified — don't forward it as proof or act on
+      whatever it claims to show until you've corroborated it through another source.
+    </div>
+    {% endif %}
+    {% endif %}
+
+    <p class="text-muted small mt-3 mb-0">
+      Got a suspicious email or document instead? <a href="{{ url_for('workspace') }}">Analyze an email</a> or
+      <a href="{{ url_for('evidence_upload') }}">ingest other evidence</a>.
+    </p>
+  </div>
+</div>
+{% endblock %}

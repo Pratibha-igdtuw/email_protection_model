@@ -221,6 +221,16 @@ instance/                    SQLite database (created at runtime)
 - **DMARC** policy is read from the `Authentication-Results` header first
   (works fully offline); a live DNS TXT lookup via `dnspython` is attempted
   as a secondary confirmation and silently skipped if unavailable.
+- **TinyFish** (Search/Fetch/Agent) powers three features and is optional
+  the same way: set `TINYFISH_API_KEY` to enable live, cited web
+  corroboration of a domain/phone against real-time scam reports
+  (`modules/web_corroboration.py`, shown on the case result page),
+  sandboxed link preview that visits a suspicious URL in TinyFish's own
+  browser rather than the investigator's (`modules/link_preview.py`,
+  `/preview-link`), and claimed-brand-vs-official-site verification for
+  non-technical users (`modules/site_verification.py`, `/verify-site`).
+  Without a key, all three report `not_configured` rather than erroring —
+  the rest of the pipeline is unaffected.
 
 ### Analyze latency
 

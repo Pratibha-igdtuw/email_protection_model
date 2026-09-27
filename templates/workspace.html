@@ -1,15 +1,23 @@
 {% extends 'base.html' %}
-{% block title %}Analyze Email — FORENSIQ{% endblock %}
+{% block title %}Analyze — FORENSIQ{% endblock %}
 {% block content %}
 <div class="row justify-content-center">
   <div class="col-lg-9">
     <div class="mb-4">
-      <h1 class="fw-bold" style="font-size:1.9rem;">Analyze an email</h1>
-      <p class="text-muted mb-0">One upload runs content AI, geolocation, SPF/DKIM/DMARC authentication and blacklist checks, merged into a single combined risk verdict.</p>
+      <h1 class="fw-bold" style="font-size:1.9rem;">Analyze</h1>
+      <p class="text-muted mb-0">Quick, one-off checks — no case-linking or notes needed. Pick what you're checking below.</p>
     </div>
 
+    <ul class="nav nav-pills mb-3" id="analyzeTypeTabs">
+      <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#emailType"><i class="fa-solid fa-envelope me-1"></i>Email</button></li>
+      <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#imageType"><i class="fa-solid fa-image me-1"></i>Image</button></li>
+    </ul>
+
+    <div class="tab-content">
+    <div class="tab-pane fade show active" id="emailType">
     <div class="card shadow-sm border-0 mb-4">
       <div class="card-body p-4">
+        <p class="text-muted small mb-3">One upload runs content AI, geolocation, SPF/DKIM/DMARC authentication and blacklist checks, merged into a single combined risk verdict.</p>
         <ul class="nav nav-pills mb-3" id="inputTabs">
           <li class="nav-item"><button class="nav-link active" data-bs-toggle="pill" data-bs-target="#pasteTab">Paste raw email</button></li>
           <li class="nav-item"><button class="nav-link" data-bs-toggle="pill" data-bs-target="#uploadTab">Upload .eml file</button></li>
@@ -41,9 +49,39 @@
       <div class="col-md-3"><div class="feature-chip"><i class="fa-solid fa-key"></i><span>SPF / DKIM / DMARC</span></div></div>
       <div class="col-md-3"><div class="feature-chip"><i class="fa-solid fa-file-shield"></i><span>PDF Forensic Report</span></div></div>
     </div>
+    </div>
+
+    <div class="tab-pane fade" id="imageType">
+    <div class="card shadow-sm border-0 mb-4">
+      <div class="card-body p-4">
+        <p class="text-muted small mb-3">Checks a photo or screenshot for signs of editing (Error Level Analysis + EXIF consistency) and for signs it was AI-generated —
+          embedded provenance metadata first (Midjourney/DALL-E/Stable Diffusion tags, PNG generation-recipe chunks, C2PA source-type declarations), with a weaker
+          noise-texture signal as backup only. Runs the same check used on email attachments and evidence uploads — the result lands on the Evidence ledger, hashed like everything else.</p>
+        <form action="{{ url_for('evidence_upload') }}" method="post" enctype="multipart/form-data">
+          <input type="hidden" name="csrf_token" value="{{ csrf_token() }}">
+          <input type="hidden" name="evidence_type" value="image">
+          <input type="file" name="evidence_file" accept="image/*" class="form-control mb-1" required>
+          <div class="form-text mb-3">PNG, JPEG, GIF, WEBP, BMP or TIFF. Max 25 MB.</div>
+          <div class="d-grid">
+            <button type="submit" class="btn btn-primary btn-lg">
+              <i class="fa-solid fa-magnifying-glass me-2"></i>Check This Image
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+
+    <div class="row g-3">
+      <div class="col-md-4"><div class="feature-chip"><i class="fa-solid fa-magnifying-glass"></i><span>Error Level Analysis</span></div></div>
+      <div class="col-md-4"><div class="feature-chip"><i class="fa-solid fa-clock-rotate-left"></i><span>EXIF Consistency</span></div></div>
+      <div class="col-md-4"><div class="feature-chip"><i class="fa-solid fa-wand-magic-sparkles"></i><span>AI-Generation Provenance Check</span></div></div>
+    </div>
+    </div>
+    </div>
 
     <p class="text-muted small mt-3 mb-0">
-      Evidence isn't only email — <a href="{{ url_for('evidence_upload') }}">ingest an SMS export, chat log, screenshot, or other file</a> into the same blockchain evidence ledger.
+      Need to attach a document, chat/SMS export, or other file to a specific case — with notes or case-linking?
+      <a href="{{ url_for('evidence_upload') }}">Use Ingest Evidence</a> instead.
     </p>
   </div>
 </div>
