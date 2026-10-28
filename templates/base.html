@@ -9,115 +9,55 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%232c5ef6%27 d=%27M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5z%27/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%23f26b1d%27 d=%27M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5z%27/%3E%3C/svg%3E">
 </head>
-<body>
-<nav class="navbar navbar-expand-lg app-navbar sticky-top">
-  <div class="container-fluid px-4">
-    <a class="navbar-brand" href="{{ url_for('overview') }}">
-      <i class="fa-solid fa-shield-halved"></i>FORENSIQ
-    </a>
-    <button class="navbar-toggler" type="button" data-bs-toggle="collapse" data-bs-target="#nav">
-      <span class="navbar-toggler-icon"></span>
-    </button>
-    <div class="collapse navbar-collapse" id="nav">
-      <ul class="navbar-nav ms-auto align-items-lg-center gap-lg-1">
-        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint=='overview' }}" href="{{ url_for('overview') }}"><i class="fa-solid fa-house me-1"></i>Overview</a></li>
+<body class="has-sidebar">
+<aside class="sidebar" id="sidebar">
+  <a class="side-brand" href="{{ url_for('overview') }}"><span class="brand-tile"><i class="fa-solid fa-shield-halved"></i></span><span>FORENSIQ</span></a>
+  <nav class="side-nav">
+      <a class="side-link {{ 'active' if request.endpoint=='overview' }}" href="{{ url_for('overview') }}"><i class="fa-solid fa-house"></i><span>Overview</span></a>
+      <a class="side-link {{ 'active' if request.endpoint in ['index','workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass"></i><span>Analyze</span></a>
 
-        <li class="nav-item"><a class="nav-link {{ 'active' if request.endpoint in ['index', 'workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-1"></i>Analyze</a></li>
+    <div class="side-label">Investigate</div>
+      <a class="side-link {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns"></i><span>Dashboard</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='threat_map' }}" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia"></i><span>Threat Map</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='threat_clusters' }}" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project"></i><span>Clusters</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='threat_anomalies' }}" href="{{ url_for('threat_anomalies') }}"><i class="fa-solid fa-chart-line"></i><span>Anomalies</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='correlation_graph' }}" href="{{ url_for('correlation_graph') }}"><i class="fa-solid fa-circle-nodes"></i><span>Correlation Graph</span></a>
 
-        {% set investigate_endpoints = ['dashboard','threat_map','threat_clusters','threat_anomalies','correlation_graph'] %}
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in investigate_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="fa-solid fa-table-columns me-1"></i>Investigate
-          </a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='dashboard' }}" href="{{ url_for('dashboard') }}"><i class="fa-solid fa-table-columns me-2"></i>Dashboard</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_map' }}" href="{{ url_for('threat_map') }}"><i class="fa-solid fa-earth-asia me-2"></i>Threat Map</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_clusters' }}" href="{{ url_for('threat_clusters') }}"><i class="fa-solid fa-diagram-project me-2"></i>Clusters</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='threat_anomalies' }}" href="{{ url_for('threat_anomalies') }}"><i class="fa-solid fa-chart-line me-2"></i>Anomalies</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='correlation_graph' }}" href="{{ url_for('correlation_graph') }}"><i class="fa-solid fa-circle-nodes me-2"></i>Correlation Graph</a></li>
-          </ul>
-        </li>
+    <div class="side-label">Evidence</div>
+      <a class="side-link {{ 'active' if request.endpoint=='check_image' }}" href="{{ url_for('check_image') }}"><i class="fa-solid fa-image"></i><span>Check an Image</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='evidence_upload' }}" href="{{ url_for('evidence_upload') }}"><i class="fa-solid fa-upload"></i><span>Ingest Evidence</span></a>
+      <a class="side-link {{ 'active' if request.endpoint in ['evidence_list','evidence_detail'] }}" href="{{ url_for('evidence_list') }}"><i class="fa-solid fa-box-archive"></i><span>All Evidence</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='blockchain_ledger' }}" href="{{ url_for('blockchain_ledger') }}"><i class="fa-solid fa-link"></i><span>Evidence Ledger</span></a>
 
-        {% set evidence_endpoints = ['evidence_list','evidence_upload','evidence_detail','blockchain_ledger','check_image'] %}
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in evidence_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="fa-solid fa-box-archive me-1"></i>Evidence
-          </a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_image' }}" href="{{ url_for('check_image') }}"><i class="fa-solid fa-image me-2"></i>Check an Image</a></li>
-            <li><hr class="dropdown-divider"></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='evidence_upload' }}" href="{{ url_for('evidence_upload') }}"><i class="fa-solid fa-upload me-2"></i>Ingest Evidence</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint in ['evidence_list','evidence_detail'] }}" href="{{ url_for('evidence_list') }}"><i class="fa-solid fa-box-archive me-2"></i>All Evidence</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='blockchain_ledger' }}" href="{{ url_for('blockchain_ledger') }}"><i class="fa-solid fa-link me-2"></i>Evidence Ledger</a></li>
-          </ul>
-        </li>
-
-        {% set email_tools_endpoints = ['index','workspace','check_number','verify_site','connect_mailbox'] %}
-        <li class="nav-item dropdown">
-          <a class="nav-link dropdown-toggle {{ 'active' if request.endpoint in email_tools_endpoints }}" href="#" role="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <i class="fa-solid fa-envelope me-1"></i>Email Tools
-          </a>
-          <ul class="dropdown-menu">
-            <li><a class="dropdown-item {{ 'active' if request.endpoint in ['index','workspace'] }}" href="{{ url_for('workspace') }}"><i class="fa-solid fa-magnifying-glass me-2"></i>Analyze</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume me-2"></i>Check a Call/Number</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='verify_site' }}" href="{{ url_for('verify_site') }}"><i class="fa-solid fa-building-shield me-2"></i>Verify a Website</a></li>
-            <li><a class="dropdown-item {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check me-2"></i>Connect Mailbox</a></li>
-          </ul>
-        </li>
-
-        {% if current_user.is_authenticated %}
-        <li class="nav-item dropdown ms-lg-2 mt-2 mt-lg-0">
-          <button class="user-menu-toggle dropdown-toggle" type="button" data-bs-toggle="dropdown" aria-expanded="false">
-            <span class="user-avatar">{{ current_user.initials }}</span>
-            {{ current_user.full_name.split(' ')[0] }}
-          </button>
-
-          <ul class="dropdown-menu dropdown-menu-end">
-            <li class="dropdown-item-text">
-              <div class="fw-semibold">{{ current_user.full_name }}</div>
-              <small>{{ current_user.email }}</small>
-            </li>
-
-            <li><hr class="dropdown-divider"></li>
-
-            <li>
-              <a class="dropdown-item" href="{{ url_for('dashboard') }}">
-                <i class="fa-solid fa-table-columns me-2"></i>My cases
-              </a>
-            </li>
-
-            <li>
-              <a class="dropdown-item {{ 'active' if request.endpoint=='api_key_settings' }}" href="{{ url_for('api_key_settings') }}">
-                <i class="fa-solid fa-key me-2"></i>API key
-              </a>
-            </li>
-
-            {% if current_user.is_admin %}
-            <li>
-              <a class="dropdown-item {{ 'active' if request.endpoint=='audit_log_view' }}" href="{{ url_for('audit_log_view') }}">
-                <i class="fa-solid fa-clipboard-list me-2"></i>Audit log
-              </a>
-            </li>
-            {% endif %}
-
-            <li><hr class="dropdown-divider"></li>
-
-            <li>
-              <a class="dropdown-item" href="{{ url_for('logout') }}">
-                <i class="fa-solid fa-right-from-bracket me-2"></i>Log out
-              </a>
-            </li>
-          </ul>
-        </li>
-        {% endif %}
-      </ul>
+    <div class="side-label">Email tools</div>
+      <a class="side-link {{ 'active' if request.endpoint=='check_number' }}" href="{{ url_for('check_number') }}"><i class="fa-solid fa-phone-volume"></i><span>Check a Call/Number</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='verify_site' }}" href="{{ url_for('verify_site') }}"><i class="fa-solid fa-building-shield"></i><span>Verify a Website</span></a>
+      <a class="side-link {{ 'active' if request.endpoint=='connect_mailbox' }}" href="{{ url_for('connect_mailbox') }}"><i class="fa-solid fa-envelope-circle-check"></i><span>Connect Mailbox</span></a>
+  </nav>
+  {% if current_user.is_authenticated %}
+  <div class="side-foot">
+    <div class="side-user">
+      <span class="user-avatar">{{ current_user.initials }}</span>
+      <div class="side-user-meta"><b>{{ current_user.full_name }}</b><small>{{ current_user.email }}</small></div>
+    </div>
+    <div class="side-mini">
+      <a class="{{ 'active' if request.endpoint=='api_key_settings' }}" href="{{ url_for('api_key_settings') }}"><i class="fa-solid fa-key"></i>API key</a>
+      {% if current_user.is_admin %}<a class="{{ 'active' if request.endpoint=='audit_log_view' }}" href="{{ url_for('audit_log_view') }}"><i class="fa-solid fa-clipboard-list"></i>Audit log</a>{% endif %}
+      <a href="{{ url_for('logout') }}"><i class="fa-solid fa-right-from-bracket"></i>Log out</a>
     </div>
   </div>
-</nav>
+  {% endif %}
+</aside>
+<div class="side-backdrop" id="sideBackdrop"></div>
 
-<div class="container-fluid px-4 py-4">
+<div class="app-main">
+  <header class="mobile-bar">
+    <button type="button" id="sideToggle" aria-label="Open menu"><i class="fa-solid fa-bars"></i></button>
+    <span class="side-brand"><span class="brand-tile"><i class="fa-solid fa-shield-halved"></i></span>FORENSIQ</span>
+  </header>
+  <main class="app-content">
   {% with messages = get_flashed_messages(with_categories=true) %}
     {% if messages %}
       {% for category, message in messages %}
@@ -130,10 +70,12 @@
   {% endwith %}
 
   {% block content %}{% endblock %}
+  </main>
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/js/bootstrap.bundle.min.js"></script>
 <script src="{{ url_for('static', filename='js/voice.js') }}"></script>
+<script src="{{ url_for('static', filename='js/forensiq-ui.js') }}"></script>
 {% block scripts %}{% endblock %}
 </body>
 </html>

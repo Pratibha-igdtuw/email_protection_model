@@ -82,7 +82,7 @@ def check_local_blacklist(ip_address, domain, db_session, BlacklistEntry):
              'added_on': str(e.added_on)} for e in entries]
 
 
-def check_abuseipdb(ip_address, timeout=4):
+def check_abuseipdb(ip_address, timeout=2):
     api_key = os.environ.get('ABUSEIPDB_API_KEY')
     if not api_key:
         return {'status': 'not_configured',

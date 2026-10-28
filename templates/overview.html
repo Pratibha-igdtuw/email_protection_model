@@ -8,28 +8,28 @@
 </div>
 
 <div class="row g-3 mb-2">
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg-3 col-xl">
     <div class="card shadow-sm h-100"><div class="card-body">
       <div class="text-muted small">Emails Analyzed</div>
-      <div class="fs-3 fw-bold">{{ case_count }}</div>
+      <div class="fs-3 fw-bold" data-countup="{{ case_count }}">{{ case_count }}</div>
       <a href="{{ url_for('dashboard') }}" class="small">View cases <i class="fa-solid fa-arrow-right ms-1"></i></a>
     </div></div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg-3 col-xl">
     <div class="card shadow-sm h-100"><div class="card-body">
       <div class="text-muted small">Evidence Items</div>
       <div class="fs-3 fw-bold">{{ evidence_count }}</div>
       <a href="{{ url_for('evidence_list') }}" class="small">View evidence <i class="fa-solid fa-arrow-right ms-1"></i></a>
     </div></div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg-3 col-xl">
     <div class="card shadow-sm h-100"><div class="card-body">
       <div class="text-muted small">Correlation Points</div>
       <div class="fs-3 fw-bold">{{ correlations|length }}</div>
       <a href="{{ url_for('correlation_graph') }}" class="small">View graph <i class="fa-solid fa-arrow-right ms-1"></i></a>
     </div></div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg-3 col-xl">
     <div class="card shadow-sm h-100"><div class="card-body">
       <div class="text-muted small">Evidence Chain</div>
       <div class="fs-3 fw-bold {{ 'text-success' if chain_valid else 'text-danger' }}">
@@ -38,7 +38,7 @@
       <a href="{{ url_for('blockchain_ledger') }}" class="small">{{ chain_length }} block(s) <i class="fa-solid fa-arrow-right ms-1"></i></a>
     </div></div>
   </div>
-  <div class="col-6 col-lg-3">
+  <div class="col-6 col-lg-3 col-xl">
     <div class="card shadow-sm h-100"><div class="card-body">
       <div class="text-muted small">Forensic Findings</div>
       <div class="fs-3 fw-bold {{ 'text-danger' if flagged_evidence_total else '' }}">{{ flagged_evidence_total }}</div>

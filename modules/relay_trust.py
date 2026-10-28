@@ -145,7 +145,7 @@ def reconstruct_trusted_relay(parsed_email, recipient_domain=None):
     unique_ips = sorted({ip for hop in hops for ip in (hop.get('public_ips') or [])})
     geo_by_ip = {}
     if unique_ips:
-        with concurrent.futures.ThreadPoolExecutor(max_workers=min(8, len(unique_ips))) as pool:
+        with concurrent.futures.ThreadPoolExecutor(max_workers=min(16, len(unique_ips))) as pool:
             futures = {pool.submit(geoip_mod.lookup_ip, ip): ip for ip in unique_ips}
             for fut in concurrent.futures.as_completed(futures):
                 ip = futures[fut]

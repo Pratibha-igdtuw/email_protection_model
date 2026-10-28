@@ -49,7 +49,8 @@
             {% endif %}
             {{ result.verdict }}
           </h4>
-          <p class="text-muted small mb-1">Link you were sent: <code>{{ result.claimed_domain }}</code></p>
+          <p class="text-muted small mb-1">Link you were sent: <code>{{ result.claimed_host or result.claimed_domain }}</code></p>
+          {% if result.note %}<p class="small mb-1"><i class="fa-solid fa-circle-info me-1"></i>{{ result.note }}</p>{% endif %}
           {% if result.official_domains %}
           <p class="text-muted small mb-0">
             Official website(s) found: {% for d in result.official_domains %}<code>{{ d }}</code>{% if not loop.last %}, {% endif %}{% endfor %}

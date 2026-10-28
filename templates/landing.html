@@ -10,13 +10,13 @@
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/bootstrap/5.3.3/css/bootstrap.min.css">
 <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.2/css/all.min.css">
 <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
-<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%232c5ef6%27 d=%27M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5z%27/%3E%3C/svg%3E">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns=%27http://www.w3.org/2000/svg%27 viewBox=%270 0 24 24%27%3E%3Cpath fill=%27%23f26b1d%27 d=%27M12 1 3 5v6c0 5.5 3.8 10.7 9 12 5.2-1.3 9-6.5 9-12V5z%27/%3E%3C/svg%3E">
 </head>
 <body>
 
 <nav class="mkt-nav">
   <div class="mkt-shell d-flex align-items-center justify-content-between py-3">
-    <a class="brand" href="{{ url_for('landing') }}"><i class="fa-solid fa-shield-halved"></i>FORENSIQ</a>
+    <a class="brand" href="{{ url_for('landing') }}"><span class="brand-tile"><i class="fa-solid fa-shield-halved"></i></span>FORENSIQ</a>
     <div class="d-none d-md-flex mkt-links">
       <a href="#capabilities">Capabilities</a>
       <a href="#how-it-works">How it works</a>

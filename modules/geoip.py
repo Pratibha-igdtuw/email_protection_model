@@ -13,7 +13,7 @@ import requests
 IP_LOOKUP_API = "https://ipwho.is/{ip}"
 
 
-def lookup_ip(ip_address, timeout=4):
+def lookup_ip(ip_address, timeout=2):
     if not ip_address:
         return {'status': 'no_ip', 'message': 'No originating IP could be extracted from headers.'}
     try:

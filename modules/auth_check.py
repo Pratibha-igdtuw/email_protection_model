@@ -62,7 +62,7 @@ def check_dmarc_dns(domain):
     if not DNS_AVAILABLE or not domain:
         return None
     try:
-        answers = dns.resolver.resolve(f'_dmarc.{domain}', 'TXT', lifetime=3)
+        answers = dns.resolver.resolve(f'_dmarc.{domain}', 'TXT', lifetime=2)
         for rdata in answers:
             txt = b''.join(rdata.strings).decode('utf-8', errors='replace')
             if 'v=DMARC1' in txt:

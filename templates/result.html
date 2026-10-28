@@ -35,7 +35,7 @@
   <div class="col-md-4">
     <div class="card verdict-card severity-{{ risk.severity|lower }} shadow-sm h-100">
       <div class="card-body text-center">
-        <div class="score-circle">{{ risk.combined_score }}</div>
+        <div class="score-wrap"><div class="score-circle" data-score="{{ risk.combined_score }}" style="--pct:{{ risk.combined_score }}">{{ risk.combined_score }}</div><div class="score-num">{{ risk.combined_score }}</div></div>
         <h5 class="mt-3 mb-0">Combined Risk Score</h5>
         <span class="badge severity-badge severity-{{ risk.severity|lower }} mt-2">{{ risk.severity }}</span>
       </div>

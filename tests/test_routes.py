@@ -39,7 +39,8 @@ def test_landing_page_loads(client):
 def test_signup_creates_account_and_logs_in(client):
     resp = _signup(client)
     assert resp.status_code == 200
-    assert b'workspace' in resp.request.path.encode() or resp.request.path == '/app'
+    # Signup lands on the Overview page (the app's post-login home).
+    assert resp.request.path in ('/overview', '/app')
 
 
 def test_signup_rejects_short_password(client):

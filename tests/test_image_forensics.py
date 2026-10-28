@@ -19,19 +19,37 @@ def _plain_jpeg():
     return _jpeg_bytes(Image.new('RGB', (120, 120), color=(120, 140, 160)))
 
 
+def _textured(seed, size=(800, 600), noise=40):
+    """Deterministic photo-like image: gradient + strong texture. Natural
+    photos carry fine detail everywhere; flat synthetic fills do not, and
+    would not exercise ELA realistically."""
+    import random
+    rnd = random.Random(seed)
+    img = Image.new('RGB', size)
+    px = img.load()
+    for y in range(size[1]):
+        for x in range(size[0]):
+            b = int(80 + 90 * x / size[0] + 40 * y / size[1])
+            px[x, y] = tuple(max(0, min(255, v + rnd.randint(-noise, noise))) for v in (b, b // 2, 200 - b // 2))
+    return img
+
+
+def _resave(img, quality, times):
+    for _ in range(times):
+        img = Image.open(io.BytesIO(_jpeg_bytes(img, quality=quality))).convert('RGB')
+    return img
+
+
 def _spliced_jpeg():
-    """A base image re-compressed at one quality with a patch pasted in
-    that was independently compressed at a very different quality --
-    simulates a region with a different compression history, which is
+    """A photo whose compression history has settled (saved repeatedly at
+    one quality), with a region pasted in from a different, never-
+    compressed source and the whole thing saved once more -- the pasted
+    region carries a different compression history than the rest, which is
     exactly what ELA is meant to surface."""
-    base = Image.new('RGB', (200, 200), color=(120, 140, 160))
-    base = Image.open(io.BytesIO(_jpeg_bytes(base, quality=95))).convert('RGB')
-
-    patch = Image.new('RGB', (60, 60), color=(200, 50, 50))
-    patch = Image.open(io.BytesIO(_jpeg_bytes(patch, quality=20))).convert('RGB')
-
-    base.paste(patch, (70, 70))
-    return _jpeg_bytes(base, quality=95)
+    base = _resave(_textured(7), 90, 3)
+    patch = _textured(99).crop((200, 150, 440, 330))
+    base.paste(patch, (300, 250))
+    return _jpeg_bytes(base, quality=90)
 
 
 def _edited_exif_jpeg():
@@ -126,3 +144,31 @@ def test_analyze_image_missing_pillow_degrades_gracefully(monkeypatch):
     result = image_forensics.analyze_image(_plain_jpeg(), 'clean.jpg')
     assert result['analyzed'] is False
     assert 'Pillow is not installed' in result['note']
+
+
+# --- ELA false-positive regression ------------------------------------------
+# Real incident: the ELA check compared the single hottest pixel against the
+# mean and flagged every ordinary photo (measured 13-19x on untouched phone
+# photos). It now needs one solid cluster of high-error blocks.
+
+def test_untouched_textured_photo_is_not_flagged_by_ela():
+    result = image_forensics.analyze_image(_jpeg_bytes(_textured(7), quality=85), 'photo.jpg')
+    assert result['analyzed'] is True
+    assert result['ela_info']['anomaly_detected'] is False
+    assert result['flags'] == []
+    assert result['risk_score'] == 0
+
+
+def test_sharp_edges_alone_do_not_trigger_ela():
+    """Rectangles / text-like edges give a few very hot pixels (the old
+    max-vs-mean rule fired on this) but no solid pasted-in region."""
+    import random
+    from PIL import ImageDraw
+    rnd = random.Random(3)
+    img = _textured(11, noise=6)
+    d = ImageDraw.Draw(img)
+    for _ in range(60):
+        x, y = rnd.randint(0, 740), rnd.randint(0, 540)
+        d.rectangle([x, y, x + rnd.randint(8, 50), y + rnd.randint(8, 50)], outline=(rnd.randint(0, 255),) * 3, width=2)
+    result = image_forensics.analyze_image(_jpeg_bytes(img, quality=85), 'edges.jpg')
+    assert result['ela_info']['anomaly_detected'] is False
