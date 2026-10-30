@@ -20,6 +20,7 @@ import re
 from modules import document_forensics
 from modules import image_forensics
 from modules import ai_image_detection
+from modules import image_provenance
 from modules import classifier
 
 EVIDENCE_TYPES = {
@@ -138,6 +139,8 @@ def _extract_image_metadata(raw_bytes, filename):
         if tamper.get('flags'):
             meta['flags'] = tamper['flags']
         meta['tamper_risk_score'] = tamper.get('risk_score', 0)
+        if tamper.get('notes'):
+            meta['tamper_notes'] = tamper['notes']
     elif tamper.get('note'):
         # Don't overwrite an existing EXIF-parse note with this one --
         # keep whichever is more specific if both fired.
@@ -155,6 +158,33 @@ def _extract_image_metadata(raw_bytes, filename):
             meta['ai_generation_flags'] = ai_gen['flags']
         if ai_gen.get('note'):
             meta['ai_generation_note'] = ai_gen['note']
+
+    # Provenance / external verification: C2PA signed credentials, reverse
+    # image search, trained AI detector (see modules/image_provenance.py).
+    # Each is optional and fails soft; findings are stored for display.
+    try:
+        prov = image_provenance.verify_image(raw_bytes, filename)
+        c2pa_r, ai_r = prov.get('c2pa') or {}, prov.get('ai_detector') or {}
+        if c2pa_r.get('status') == 'success':
+            if not c2pa_r.get('valid'):
+                meta.setdefault('flags', []).append(
+                    'Signed Content Credentials (C2PA) are present but no longer validate -- the image '
+                    'was modified after it was signed.')
+                meta['tamper_risk_score'] = max(meta.get('tamper_risk_score', 0), 40)
+            if c2pa_r.get('ai_generated'):
+                meta['likely_ai_generated'] = True
+                meta['ai_generation_score'] = max(meta.get('ai_generation_score', 0), 95)
+                meta.setdefault('ai_generation_flags', []).append(
+                    'Signed Content Credentials declare this image was AI-generated.')
+        if ai_r.get('status') == 'success' and ai_r.get('ai_probability', 0) >= 0.8:
+            meta['likely_ai_generated'] = True
+            meta['ai_generation_score'] = max(meta.get('ai_generation_score', 0), round(ai_r['ai_probability'] * 100))
+            meta.setdefault('ai_generation_flags', []).append(
+                f"Trained AI-image detector: {round(ai_r['ai_probability'] * 100)}% probability AI-generated.")
+        meta['provenance'] = prov
+        meta['provenance_findings'] = image_provenance.summarize(prov)
+    except Exception as e:  # never let an external check break evidence ingestion
+        meta['provenance_note'] = f'Provenance checks could not run: {e}'[:200]
 
     return meta
 

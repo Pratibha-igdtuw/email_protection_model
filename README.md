@@ -218,6 +218,23 @@ instance/                    SQLite database (created at runtime)
   the local blacklist (`BlacklistEntry` rows with `indicator_type='phone'`)
   and the bundled community-reported scam-number snapshot
   (`ml_model/scam_numbers.csv`).
+- **Accuracy add-ons for Check Image / Verify Website / Check Number** (all
+  optional; each reports "not enabled" without its key, nothing breaks):
+  - `GOOGLE_SAFE_BROWSING_API_KEY` -- Google's phishing/malware list for
+    `/verify-site` (a hit overrides everything: "DANGEROUS LINK").
+  - `VIRUSTOTAL_API_KEY` -- multi-engine URL reputation for `/verify-site`.
+  - `GOOGLE_VISION_API_KEY` -- reverse image search (web detection) for
+    `/check-image`: finds the same photo elsewhere on the web.
+  - `SIGHTENGINE_API_USER` / `SIGHTENGINE_API_SECRET` -- AI-generated-image
+    detector for `/check-image`.
+  - `VERIPHONE_API_KEY` -- live line type (mobile / landline / VoIP /
+    toll-free) for `/check-number`. Free plan: 1,000 lookups/month, no card.
+  - `DEFAULT_PHONE_REGION` -- region for numbers typed without a country
+    code (default `IN`).
+  Always on, no key needed: C2PA / Content Credentials verification
+  (`c2pa-python`), Wikidata official-website lookup, URL lexical signals
+  (punycode, IP host, `@`, suspicious TLDs, domain age), libphonenumber
+  number analysis, and the rule-based call scam-script analyzer.
 - **DMARC** policy is read from the `Authentication-Results` header first
   (works fully offline); a live DNS TXT lookup via `dnspython` is attempted
   as a secondary confirmation and silently skipped if unavailable.

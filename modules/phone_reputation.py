@@ -43,7 +43,7 @@ SCAM_NUMBERS_PATH = os.path.join(HERE, '..', 'ml_model', 'scam_numbers.csv')
 _scam_numbers = None
 
 
-def normalize_number(raw_number, default_region='US'):
+def normalize_number(raw_number, default_region=None):
     """Returns (e164_or_digits, display, error). `display` is what to show
     the user back; the first value is what gets matched against the
     blacklist / scam-number snapshot so formatting differences don't cause
@@ -51,6 +51,9 @@ def normalize_number(raw_number, default_region='US'):
     raw_number = (raw_number or '').strip()
     if not raw_number:
         return None, None, 'Enter a phone number.'
+    # Numbers typed without a country code are read as belonging to the home
+    # region (India by default; override with DEFAULT_PHONE_REGION).
+    default_region = default_region or os.environ.get('DEFAULT_PHONE_REGION') or 'IN'
 
     if _HAS_PHONENUMBERS:
         try:
@@ -132,7 +135,7 @@ def check_ipqualityscore(normalized_number, timeout=4):
     try:
         resp = requests.get(
             f"{IPQUALITYSCORE_URL}/{api_key}/{normalized_number.lstrip('+')}",
-            params={'country': 'US'},
+            params={'country': os.environ.get('DEFAULT_PHONE_REGION') or 'IN'},
             timeout=timeout,
         )
         data = resp.json()

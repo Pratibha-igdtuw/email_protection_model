@@ -19,12 +19,17 @@
           <label class="form-label fw-semibold" for="numberInput">Phone number that called or texted you</label>
           <div class="input-group">
             <input type="text" id="numberInput" name="number" class="form-control form-control-lg"
-                   placeholder="e.g. +1 (800) 555-0172" value="{{ submitted_number or '' }}" autocomplete="off">
+                   placeholder="e.g. +91 98765 43210" value="{{ submitted_number or '' }}" autocomplete="off">
             <button type="button" id="dictateBtn" class="btn btn-outline-dark" aria-pressed="false">
               <i class="fa-solid fa-microphone"></i> Speak instead
             </button>
           </div>
           <div class="form-text">Don't want to type? Tap "Speak instead" and say the number out loud.</div>
+
+          <label class="form-label fw-semibold mt-4" for="transcriptInput">What did the caller say? <span class="text-muted fw-normal">(optional, but makes the check much more accurate)</span></label>
+          <textarea id="transcriptInput" name="transcript" class="form-control" rows="4"
+                    placeholder="e.g. &quot;I am calling from SBI, your KYC will expire today, please share the OTP you just received...&quot;">{{ submitted_transcript or '' }}</textarea>
+          <div class="form-text">Scammers change numbers all the time, but their script stays the same. Type or dictate what they asked you to do.</div>
           <div class="d-grid mt-4">
             <button type="submit" class="btn btn-primary btn-lg">
               <i class="fa-solid fa-phone-volume me-2"></i>Check this number
@@ -55,6 +60,40 @@
           <li>{{ reason }}</li>
           {% endfor %}
         </ul>
+        {% if script_result and script_result.status == 'success' %}
+        <hr>
+        <h6 class="text-muted">What the caller said — {{ script_result.score }}/100</h6>
+        {% if script_result.matches %}
+        {% for m in script_result.matches %}
+        <div class="mb-2">
+          <i class="fa-solid fa-triangle-exclamation text-danger me-1"></i><strong>{{ m.label }}</strong>
+          <span class="text-muted small">— “{{ m.phrases|join('”, “') }}”</span>
+          <div class="small text-muted ms-4">{{ m.why }}</div>
+        </div>
+        {% endfor %}
+        {% else %}
+        <p class="small text-muted mb-1">No known scam-script phrases found in what you entered.</p>
+        {% endif %}
+        <p class="small mb-0"><strong>{{ script_result.advice }}</strong></p>
+        {% endif %}
+
+        {% if number_profile and number_profile.status == 'success' %}
+        <hr>
+        <h6 class="text-muted">About this number</h6>
+        <div class="small text-muted mb-2">
+          {{ number_profile.type|capitalize }}{% if number_profile.carrier %} · {{ number_profile.carrier }}{% endif %}{% if number_profile.place %} · {{ number_profile.place }}{% endif %}
+        </div>
+        <ul class="list-unstyled small mb-0">
+          {% for sg in (number_profile.signals + (live_result.signals if live_result else [])) %}
+          <li class="mb-1">
+            {% if sg.level == 'bad' %}<i class="fa-solid fa-circle-xmark text-danger me-1"></i>
+            {% elif sg.level == 'warn' %}<i class="fa-solid fa-triangle-exclamation text-warning me-1"></i>
+            {% else %}<i class="fa-solid fa-circle-info text-muted me-1"></i>{% endif %}{{ sg.text }}
+          </li>
+          {% endfor %}
+        </ul>
+        {% endif %}
+
         {% if api_status == 'not_configured' %}
         <p class="text-muted small mt-3 mb-0">
           <i class="fa-solid fa-circle-info me-1"></i>Live carrier/fraud-score lookup isn't configured on this

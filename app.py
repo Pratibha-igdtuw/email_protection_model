@@ -59,6 +59,8 @@ from modules import evidence_ingest
 from modules import timeline as timeline_mod
 from modules import anomaly as anomaly_mod
 from modules import phone_reputation
+from modules import phone_intel
+from modules import scam_script
 from modules import web_corroboration
 from modules import link_preview
 from modules import site_verification
@@ -512,19 +514,46 @@ def check_number():
     scam_list_result = phone_reputation.check_scam_number_list(normalized)
     api_result = phone_reputation.check_ipqualityscore(normalized)
     score, severity, reasons = phone_reputation.compute_phone_score(local_hits, scam_list_result, api_result)
+
+    # Structural facts about the number (offline libphonenumber + optional
+    # live line type): VoIP, premium-rate, foreign, invalid.
+    profile = phone_intel.offline_profile(normalized)
+    live_result = phone_intel.live_line_type(normalized)
+    extra_points, extra_reasons = phone_intel.apply_to_score(profile, live_result)
+    if extra_points:
+        score = min(100, score + extra_points)
+        reasons = [r for r in reasons if not r.startswith('No matches')] + extra_reasons
+        severity = 'HIGH' if score >= 60 else ('MEDIUM' if score >= 30 else 'LOW')
+
+    # What the caller SAID (optional): scam-script analysis. A fresh scam
+    # number has no reports, but the script gives it away -- so the overall
+    # verdict is the worse of number reputation and call content.
+    script_result = scam_script.analyze_call_script(request.form.get('transcript', ''))
+    overall_severity, overall_score = severity, score
+    if script_result.get('status') == 'success':
+        rank = {'LOW': 0, 'MEDIUM': 1, 'HIGH': 2}
+        if rank[script_result['severity']] > rank[severity]:
+            overall_severity = script_result['severity']
+        overall_score = max(score, script_result['score'])
+        if script_result['matches']:
+            reasons = [r for r in reasons if not r.startswith('No matches')] + [
+                f"Call content: {m['label'].lower()}" for m in script_result['matches'][:4]]
+
     # Live web corroboration for the number, same TinyFish Search+Fetch
     # module used for email domains -- advisory only, not score input.
     corroboration_result = web_corroboration.check_web_corroboration(normalized)
 
-    log_audit('phone_number_checked', target=display, detail=f"severity={severity} score={score}")
+    log_audit('phone_number_checked', target=display, detail=f"severity={overall_severity} score={overall_score}")
 
-    spoken_summary = f"{display}. Risk level: {severity}. Score {score} out of 100. " + ' '.join(reasons)
+    spoken_summary = f"{display}. Risk level: {overall_severity}. Score {overall_score} out of 100. " + ' '.join(reasons)
 
     return render_template(
         'phone_check.html', checked=True, submitted_number=raw_number,
-        display_number=display, score=score, severity=severity, reasons=reasons,
+        submitted_transcript=request.form.get('transcript', ''),
+        display_number=display, score=overall_score, severity=overall_severity, reasons=reasons,
         api_status=api_result.get('status'), spoken_summary=spoken_summary,
         corroboration_result=corroboration_result,
+        number_profile=profile, live_result=live_result, script_result=script_result,
     )
 
 

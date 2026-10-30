@@ -23,6 +23,7 @@ google-auth-oauthlib==1.2.1
 google-api-python-client==2.143.0
 python-dateutil==2.9.0.post0
 cryptography==42.0.8
+c2pa-python==0.38.1  # reads C2PA Content Credentials in modules/image_provenance.py (optional import: the app runs without it)
 Pillow>=11.1  # EXIF/image metadata extraction for multi-source evidence ingestion (modules/evidence_ingest.py); unpinned floor (not an exact pin like the rest of this file) since 3.14 wheels only exist on newer Pillow releases
 pypdf==5.9.0  # PDF metadata parsing for modules/document_forensics.py (pure Python, no C build step)
 python-docx==1.2.0  # .docx core-properties parsing for modules/document_forensics.py

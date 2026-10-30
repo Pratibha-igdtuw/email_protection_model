@@ -172,3 +172,39 @@ def test_sharp_edges_alone_do_not_trigger_ela():
         d.rectangle([x, y, x + rnd.randint(8, 50), y + rnd.randint(8, 50)], outline=(rnd.randint(0, 255),) * 3, width=2)
     result = image_forensics.analyze_image(_jpeg_bytes(img, quality=85), 'edges.jpg')
     assert result['ela_info']['anomaly_detected'] is False
+
+
+# --- editor signatures outside the EXIF Software tag ---------------------------
+
+def _jpeg_with_comment(comment):
+    buf = io.BytesIO()
+    _textured(5, size=(160, 120), noise=10).save(buf, 'JPEG', quality=90, comment=comment)
+    return buf.getvalue()
+
+
+def test_editor_named_in_jpeg_comment_is_flagged():
+    result = image_forensics.analyze_image(_jpeg_with_comment(b'Edited with Photopea'), 'e.jpg')
+    assert any('names an image editor' in f for f in result['flags'])
+    assert result['risk_score'] >= image_forensics.SOFTWARE_TAG_SCORE
+
+
+def test_editor_word_inside_pixel_data_is_not_matched():
+    clean = _jpeg_bytes(_textured(5, size=(160, 120), noise=10), quality=90)
+    result = image_forensics.analyze_image(clean + b'gimp photopea canva' * 3, 'trailing.jpg')
+    assert not any('names an image editor' in f for f in result['flags'])
+
+
+def test_png_text_chunk_editor_is_flagged():
+    from PIL.PngImagePlugin import PngInfo
+    info = PngInfo()
+    info.add_text('Software', 'GIMP 2.10')
+    buf = io.BytesIO()
+    Image.new('RGB', (40, 40), (1, 2, 3)).save(buf, 'PNG', pnginfo=info)
+    result = image_forensics.analyze_image(buf.getvalue(), 'e.png')
+    assert any('editor' in f for f in result['flags'])
+
+
+def test_jpeg_without_exif_gets_an_honest_limits_note():
+    result = image_forensics.analyze_image(_jpeg_bytes(_textured(5, size=(160, 120), noise=10), quality=90), 'shot.jpg')
+    assert result['notes'] and 'no camera metadata' in result['notes'][0]
+    assert result['risk_score'] == 0     # informational only, never scored

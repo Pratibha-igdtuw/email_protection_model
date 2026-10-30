@@ -1,5 +1,37 @@
 # Changelog
 
+## Unreleased — A2 UI refresh
+
+**Changed:** full visual refresh ("A2": clean light, orange accent). Design
+tokens re-pointed in `static/css/style.css` so every page inherits the new
+look; top navbar replaced by a left sidebar (off-canvas on mobile); brand
+name unchanged (FORENSIQ). Risk score is now a conic-gradient ring gauge.
+Wide data tables no longer collapse (the key-value table rule is scoped away
+from tables with a header row).
+
+**Added:** `static/js/forensiq-ui.js` -- animated risk gauge and count-ups,
+and an "Analyzing" overlay (scanning card, 6 steps, timer) shown while
+`/analyze` runs. Step progress is a fixed-schedule visual cue, not live
+backend status. Respects `prefers-reduced-motion`. No new CDN assets, so the
+CSP is unchanged.
+
+**Added (accuracy techniques):**
+- *Check Image*: C2PA/Content Credentials verification (broken signature = edited after signing; declared AI origin), optional reverse image search (Google Vision) and AI-image detector (Sightengine). New `modules/image_provenance.py`. A clean result is worded "No editing signals found", not "authentic".
+- *Verify Website*: optional Google Safe Browsing + VirusTotal (blacklist hit => DANGEROUS), Wikidata official-site lookup for brands not in the curated list, lexical/domain-age signals. New `modules/url_reputation.py`. Unknown brands are no longer guessed from search results.
+- *Check Number*: libphonenumber structural profile (type/carrier/region/premium/VoIP/foreign), optional Veriphone live line type (free tier), and a "what did the caller say?" scam-script analyzer (English/Hinglish: OTP, remote-access apps, digital arrest, KYC/SIM-block threats). New `modules/phone_intel.py`, `modules/scam_script.py`. Default region via `DEFAULT_PHONE_REGION` (IN).
+- New tests: `tests/test_accuracy_checks.py` (network fully mocked).
+
+**Fixed (wrong analysis):**
+- *Check an Image* flagged almost every untouched photo/screenshot as "possible splice/edit": ELA compared the single hottest pixel to the mean (measured 13-19x on real phone photos). It now needs one solid cluster of high-error blocks; tested on real photos (0/7 false flags) and on synthetic splices. Small edits (<~1% of the frame) can be missed -- ELA is a heuristic, not proof either way.
+- *Verify a Website* trusted the top web-search results as "official", so `google.com` appeared as WhatsApp's official site, and it displayed only the registrable domain (`delt.whatsapp.com` shown as `whatsapp.com`). Now: curated official domains for common brands, search results kept only if they look like the brand's own site, full address shown, copycat/shared-hosting/non-existent-address detection. New `tests/test_site_verification.py`.
+
+**Fixed (second pass, after re-testing):**
+- *Verify a Website*: a sub-address under an official domain (e.g. `delt.whatsapp.com`) is no longer passed as official unless DNS positively confirms it exists (and the domain has no wildcard DNS). Brands in the curated list no longer take any search results; for other brands, lookalike names (`foobank-login-help.com`) are rejected from search hits.
+- *Check an Image*: ELA alone cannot see careful edits that were re-saved (measured: edits pasted into real phone photos and re-saved at q95 left no ELA signal at any block size), so detection now also reads editor names from the whole metadata header (JPEG comment, XMP history, Photoshop blocks, PNG text; Photopea, Pixlr, Fotor, Meitu, etc.). The green "clean" badge no longer implies the image is genuine, and a note explains when camera metadata is missing.
+
+**Fixed:** restored the earlier latency budget (GeoIP/AbuseIPDB/DMARC 2s,
+relay-trust pool 16); updated a stale signup-redirect test.
+
 ## Unreleased — phone/caller check + voice accessibility layer
 
 **Added:** `/check-number` — a phone/caller reputation check ("is this call

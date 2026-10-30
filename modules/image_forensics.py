@@ -48,7 +48,22 @@ EDITING_SOFTWARE_MARKERS = (
     'photoshop', 'gimp', 'lightroom', 'snapseed', 'pixelmator',
     'paint.net', 'affinity photo', 'canva', 'picsart', 'facetune',
     'photoscape', 'paintshop', 'krita', 'inkscape',
+    'photopea', 'pixlr', 'fotor', 'picmonkey', 'polarr', 'afterlight', 'vsco',
+    'meitu', 'remini', 'adobe express', 'adobe illustrator', 'microsoft photos',
+    'paint 3d', 'corel', 'acdsee', 'capture one', 'darktable', 'luminar',
 )
+
+# Editors name themselves in places other than the EXIF Software tag: the
+# JPEG comment segment, XMP edit history, Photoshop resource blocks, PNG
+# text chunks. This scans only the metadata HEADER of the file (before the
+# compressed pixel data starts), so a name can't be matched by chance inside
+# image data.
+_EDITOR_REGEX = re.compile(
+    rb'(?<![a-z])(' + b'|'.join(re.escape(m.encode()) for m in sorted(EDITING_SOFTWARE_MARKERS, key=len, reverse=True)) + rb')(?![a-z])',
+    re.IGNORECASE,
+)
+_HEADER_SCAN_LIMIT = 512 * 1024
+
 
 ELA_JPEG_QUALITY = 90
 # Empirically-reasonable thresholds, not a calibrated forensic standard.
@@ -60,14 +75,36 @@ ELA_JPEG_QUALITY = 90
 # generally busy/high-detail/heavily-recompressed image can have high
 # error levels everywhere, which is a different (non-localized) pattern
 # than what ELA is meant to catch.
-ELA_ANOMALY_RATIO_THRESHOLD = 6.0
-ELA_ANOMALY_MEAN_CEILING = 40.0
-ELA_MIN_MEAN_FOR_RATIO = 1.0  # avoid a divide-by-near-zero blowup on near-blank images
+# ELA is judged on SPATIAL CLUSTERS, not on a single hottest pixel.
+#
+# History: this originally compared the image's single highest per-pixel
+# error against its mean error (flag if >= 6x). That fires on virtually
+# every ordinary photo or screenshot -- any natural image has a few
+# sharp-edge pixels whose re-compression error dwarfs the average -- so it
+# flagged untouched files as "possible splice/edit". Measured on real
+# unedited phone photos it produced ratios of 13-19x every time.
+#
+# Now: the error image is averaged into a coarse grid of blocks; a block is
+# "hot" only if it stands well above the image's own typical block (median)
+# and the natural spread (MAD), and the result only counts when hot blocks
+# form one connected, sizeable cluster -- what a pasted/edited region looks
+# like. Scattered hot spots (edges, text, noise) are ignored.
+ELA_GRID_COLUMNS = 64            # blocks across the image (rows scale with aspect ratio)
+ELA_MIN_GRID_ROWS = 8
+ELA_HOT_MULTIPLE_OF_MEDIAN = 2.5  # block mean must exceed 2.5x the median block...
+ELA_HOT_MAD_MULTIPLE = 8.0        # ...and median + 8x the median absolute deviation...
+ELA_HOT_MIN_ABOVE_MEDIAN = 1.5    # ...and be at least 1.5 error-levels above the median. Tuned on real photos
+                                  # and synthetic edits: 1.0 flagged dense sharp edges/text on smooth images
+                                  # (screenshots); 1.5 does not, at the cost of missing very small edits (<~1% of the frame).
+ELA_MIN_CLUSTER_BLOCKS = 10       # connected hot blocks needed (~0.25% of the frame)
+ELA_MIN_CLUSTER_FILL = 0.55       # cluster must fill >=55% of its bounding box: an edit is a solid
+                                  # patch, while dense text/edges make thin, ragged, scattered clusters
+ELA_MAX_CLUSTER_FRACTION = 0.40   # a cluster covering >40% of the frame is "the image", not an edit
 
 SOFTWARE_TAG_SCORE = 8
 XMP_CREATOR_TOOL_SCORE = 8
 TIMESTAMP_MISMATCH_SCORE = 6
-ELA_ANOMALY_SCORE = 10
+ELA_ANOMALY_SCORE = 8
 
 
 def is_image(filename, content_type):
@@ -165,6 +202,107 @@ def _check_exif_consistency(img):
     return flags, info
 
 
+def _metadata_header(payload):
+    """The metadata part of the file only (everything before pixel data)."""
+    if payload[:2] == b'\xff\xd8':                       # JPEG: before Start-Of-Scan
+        end = payload.find(b'\xff\xda')
+    elif payload[:8] == b'\x89PNG\r\n\x1a\n':           # PNG: before the first IDAT
+        end = payload.find(b'IDAT')
+    else:
+        end = -1
+    if end < 0 or end > _HEADER_SCAN_LIMIT:
+        end = min(len(payload), 64 * 1024)
+    return payload[:end]
+
+
+def _check_header_editor_signatures(payload, already_named):
+    """Returns (flags, info): editors named anywhere in the file's metadata
+    header (comment segment, XMP history, Photoshop blocks, PNG text)."""
+    found = []
+    for m in _EDITOR_REGEX.finditer(_metadata_header(payload)):
+        name = m.group(1).decode('ascii', 'ignore').lower()
+        if name not in found and not any(name in a.lower() for a in already_named):
+            found.append(name)
+    if not found:
+        return [], {}
+    return (
+        [f"File metadata names an image editor ({', '.join(found[:3])}) -- this file was "
+         f"opened/exported by editing software, not a direct camera or screenshot capture"],
+        {'metadata_editors': found[:5]},
+    )
+
+
+def _metadata_limits_notes(img, exif_info, xmp_info, fmt):
+    """Honest context for the analyst -- not scored, never a verdict: what
+    this check could NOT see in this particular file."""
+    notes = []
+    if not exif_info.get('has_exif') and not xmp_info and fmt in ('JPEG', 'JPG'):
+        notes.append("This JPEG has no camera metadata (EXIF). That is normal for screenshots and for "
+                     "images sent through WhatsApp or social apps, but it also means the original "
+                     "camera, device and capture time cannot be checked.")
+    return notes
+
+
+def _find_suspect_cluster(diff):
+    """Look for ONE connected cluster of unusually high-error blocks.
+
+    diff: the per-pixel ELA difference image (RGB). Returns None when the
+    error is evenly spread (the normal case for an untouched photo), else
+    {'blocks', 'area_pct', 'peak_over_median'} describing the biggest
+    qualifying cluster.
+    """
+    from PIL import Image
+
+    gray = diff.convert('L').convert('F')
+    cols = ELA_GRID_COLUMNS
+    rows = max(ELA_MIN_GRID_ROWS, round(cols * gray.height / max(gray.width, 1)))
+    grid = gray.resize((cols, rows), Image.BOX)
+    values = [grid.getpixel((x, y)) for y in range(rows) for x in range(cols)]
+    if not values:
+        return None
+
+    ordered = sorted(values)
+    median = ordered[len(ordered) // 2]
+    mad = sorted(abs(v - median) for v in values)[len(values) // 2]
+    threshold = max(median * ELA_HOT_MULTIPLE_OF_MEDIAN,
+                    median + ELA_HOT_MAD_MULTIPLE * max(mad, 0.05),
+                    median + ELA_HOT_MIN_ABOVE_MEDIAN)
+
+    hot = [v >= threshold for v in values]
+    seen = [False] * len(values)
+    best = None
+    for start in range(len(values)):
+        if not hot[start] or seen[start]:
+            continue
+        stack, cells = [start], []
+        seen[start] = True
+        while stack:
+            cell = stack.pop()
+            cells.append(cell)
+            cx, cy = cell % cols, cell // cols
+            for dx in (-1, 0, 1):
+                for dy in (-1, 0, 1):
+                    nx, ny = cx + dx, cy + dy
+                    if 0 <= nx < cols and 0 <= ny < rows:
+                        j = ny * cols + nx
+                        if hot[j] and not seen[j]:
+                            seen[j] = True
+                            stack.append(j)
+        xs = [c % cols for c in cells]
+        ys = [c // cols for c in cells]
+        box_area = (max(xs) - min(xs) + 1) * (max(ys) - min(ys) + 1)
+        solid = len(cells) / box_area >= ELA_MIN_CLUSTER_FILL
+        if solid and len(cells) >= ELA_MIN_CLUSTER_BLOCKS and len(cells) <= ELA_MAX_CLUSTER_FRACTION * len(values):
+            if best is None or len(cells) > best['blocks']:
+                peak = max(values[c] for c in cells)
+                best = {
+                    'blocks': len(cells),
+                    'area_pct': 100.0 * len(cells) / len(values),
+                    'peak_over_median': peak / max(median, 0.25),
+                }
+    return best
+
+
 def _error_level_analysis(img):
     """Returns (flags, info, preview_base64_png_or_None)."""
     from PIL import Image, ImageChops
@@ -188,15 +326,17 @@ def _error_level_analysis(img):
     mean_err = sum(channel_means) / 3.0
     max_err = max(ch[1] for ch in diff.getextrema())  # per-channel (min, max) -> overall max
 
-    ratio = max_err / max(mean_err, ELA_MIN_MEAN_FOR_RATIO)
-    anomaly_detected = ratio >= ELA_ANOMALY_RATIO_THRESHOLD and mean_err < ELA_ANOMALY_MEAN_CEILING
+    cluster = _find_suspect_cluster(diff)
+    anomaly_detected = cluster is not None
+    ratio = cluster['peak_over_median'] if cluster else 0.0
 
     flags = []
     if anomaly_detected:
         flags.append(
-            f"Error Level Analysis found a localized region with error level "
-            f"~{ratio:.1f}x the image's average -- consistent with a pasted-in "
-            f"or differently-compressed region (possible splice/edit, not proof of one)")
+            f"Error Level Analysis found one compact region (~{cluster['area_pct']:.1f}% of the "
+            f"image) whose re-compression error is ~{cluster['peak_over_median']:.1f}x the rest of the "
+            f"picture -- consistent with a pasted-in or differently-compressed region "
+            f"(possible edit; not proof of one -- re-saved or resized images can do this too)")
 
     # Amplify the diff into a human-viewable heatmap so an analyst (or the
     # forensic PDF report) can actually see where the anomaly is, not just
@@ -213,6 +353,8 @@ def _error_level_analysis(img):
         'max_error_level': round(max_err, 2),
         'anomaly_ratio': round(ratio, 2),
         'anomaly_detected': anomaly_detected,
+        'suspect_region_blocks': cluster['blocks'] if cluster else 0,
+        'suspect_region_area_pct': round(cluster['area_pct'], 2) if cluster else 0.0,
         'jpeg_resave_quality': ELA_JPEG_QUALITY,
     }
     return flags, info, preview_b64
@@ -237,7 +379,7 @@ def analyze_image(payload, filename):
     result = {
         'analyzed': False, 'format': None, 'dimensions': None,
         'exif_info': {}, 'ela_info': {}, 'ela_preview_base64': None,
-        'flags': [], 'risk_score': 0, 'note': None,
+        'flags': [], 'risk_score': 0, 'note': None, 'notes': [],
     }
     if not payload:
         result['note'] = 'No attachment content available to analyze.'
@@ -288,6 +430,13 @@ def analyze_image(payload, filename):
     if ela_info.get('anomaly_detected'):
         score += ELA_ANOMALY_SCORE
 
-    result['flags'] = exif_flags + xmp_flags + ela_flags
+    named = [exif_info.get('software', ''), xmp_info.get('xmp_creator_tool', '')]
+    header_flags, header_info = _check_header_editor_signatures(payload, [n for n in named if n])
+    if header_flags:
+        score += SOFTWARE_TAG_SCORE
+        result['exif_info'].update(header_info)
+
+    result['flags'] = exif_flags + xmp_flags + header_flags + ela_flags
+    result['notes'] = _metadata_limits_notes(img, exif_info, xmp_info, (img.format or '').upper())
     result['risk_score'] = score
     return result

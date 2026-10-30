@@ -39,7 +39,7 @@
 
     {% if checked %}
       {% if result.status == 'success' %}
-      <div class="card verdict-card {{ 'severity-low' if result.is_official else 'severity-high' }} shadow-sm mb-4">
+      <div class="card verdict-card {{ 'severity-critical' if result.threat else ('severity-low' if result.is_official else 'severity-high') }} shadow-sm mb-4">
         <div class="card-body">
           <h4 class="mb-2">
             {% if result.is_official %}
@@ -52,9 +52,28 @@
           <p class="text-muted small mb-1">Link you were sent: <code>{{ result.claimed_host or result.claimed_domain }}</code></p>
           {% if result.note %}<p class="small mb-1"><i class="fa-solid fa-circle-info me-1"></i>{{ result.note }}</p>{% endif %}
           {% if result.official_domains %}
-          <p class="text-muted small mb-0">
+          <p class="text-muted small mb-1">
             Official website(s) found: {% for d in result.official_domains %}<code>{{ d }}</code>{% if not loop.last %}, {% endif %}{% endfor %}
+            {% if result.official_source %}<span class="text-muted">· source: {{ result.official_source }}</span>{% endif %}
           </p>
+          {% endif %}
+          {% if result.signals %}
+          <hr class="my-2">
+          <ul class="small list-unstyled mb-0">
+            {% for sg in result.signals %}
+            <li class="mb-1">
+              {% if sg.level == 'bad' %}<i class="fa-solid fa-circle-xmark text-danger me-1"></i>
+              {% elif sg.level == 'warn' %}<i class="fa-solid fa-triangle-exclamation text-warning me-1"></i>
+              {% elif sg.level == 'ok' %}<i class="fa-solid fa-circle-check text-success me-1"></i>
+              {% else %}<i class="fa-solid fa-circle-info text-muted me-1"></i>{% endif %}{{ sg.text }}
+            </li>
+            {% endfor %}
+          </ul>
+          {% endif %}
+          {% set src = result.signal_sources or {} %}
+          {% if src.get('google_safe_browsing') == 'not_configured' or src.get('virustotal') == 'not_configured' %}
+          <p class="text-muted small mt-2 mb-0"><i class="fa-solid fa-circle-info me-1"></i>Live blacklist checks are not enabled on this deployment
+            (set <code>GOOGLE_SAFE_BROWSING_API_KEY</code> and/or <code>VIRUSTOTAL_API_KEY</code>) — the result above uses the official-site record and warning-sign checks only.</p>
           {% endif %}
         </div>
       </div>
